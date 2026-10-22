@@ -754,6 +754,39 @@ func extractSessionID(req schedulerPickRequest) string {
 	return ""
 }
 
+// extractProjectIdentity extracts a project identifier from request headers or metadata.
+// When headers like x-project-identity or x-workspace-root are passed, it generates a
+// consistent project key to isolate Prompt Cache across multi-project environments.
+func extractProjectIdentity(req schedulerPickRequest) string {
+	if req.Options.Headers != nil {
+		for k, vals := range req.Options.Headers {
+			if strings.EqualFold(k, "x-project-identity") || strings.EqualFold(k, "pi-project-identity") {
+				if len(vals) > 0 && strings.TrimSpace(vals[0]) != "" {
+					return strings.TrimSpace(vals[0])
+				}
+			}
+			if strings.EqualFold(k, "x-workspace-root") || strings.EqualFold(k, "pi-workspace-root") {
+				if len(vals) > 0 && strings.TrimSpace(vals[0]) != "" {
+					root := strings.TrimSpace(vals[0])
+					h := sha256.Sum256([]byte(root))
+					return hex.EncodeToString(h[:8])
+				}
+			}
+		}
+	}
+	if req.Options.Metadata != nil {
+		if s, ok := req.Options.Metadata["project_identity"].(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+		if s, ok := req.Options.Metadata["workspace_root"].(string); ok && strings.TrimSpace(s) != "" {
+			root := strings.TrimSpace(s)
+			h := sha256.Sum256([]byte(root))
+			return hex.EncodeToString(h[:8])
+		}
+	}
+	return ""
+}
+
 // extractTaskType classifies the request into HEAVY (subagents, deep research, heavy audits)
 // or LIGHT (routine queries, simple turns) based on headers and metadata.
 func extractTaskType(req schedulerPickRequest) string {
@@ -835,6 +868,7 @@ func schedulerPickCascade(registry *PoolRegistry, req schedulerPickRequest) sche
 	}
 
 	sessionID := extractSessionID(req)
+	projectID := extractProjectIdentity(req)
 	turnCount := 1
 	if sessionID != "" {
 		if aff, ok := analytics.GetSessionAffinity(sessionID, pool.ID); ok && aff.TurnCount > 0 {
@@ -1100,6 +1134,26 @@ func schedulerPickCascade(registry *PoolRegistry, req schedulerPickRequest) sche
 				}
 			}
 		}
+	} else if projectID != "" && !skipLeaderPredictive && registry != nil {
+		// Project Affinity Caching (RFC #9 / PR #13): En entornos multi-proyecto o ejecuciones
+		// concurrentes, priorizar al frente la cuenta asignada a este proyecto en RAM (TTL 30m)
+		// para evitar el Prompt Cache Thrashing entre proyectos independientes.
+		if projAuth, ok := registry.GetProjectLeader(projectID, pool.ID); ok && projAuth != "" {
+			projEmail := strings.ToLower(strings.TrimSuffix(strings.TrimPrefix(projAuth, "antigravity-"), ".json"))
+			for idx, authFile := range orderedCascade {
+				mEmail := strings.ToLower(strings.TrimSuffix(strings.TrimPrefix(authFile, "antigravity-"), ".json"))
+				if strings.EqualFold(authFile, projAuth) || mEmail == projEmail {
+					if _, isAvail := available[strings.ToLower(authFile)]; isAvail && !predEngine.ShouldPreventiveCool(mEmail) {
+						if idx > 0 {
+							matched := orderedCascade[idx]
+							orderedCascade = append(orderedCascade[:idx], orderedCascade[idx+1:]...)
+							orderedCascade = append([]string{matched}, orderedCascade...)
+						}
+						break
+					}
+				}
+			}
+		}
 	}
 
 	// Adaptive Pacing: Si el pool completo experimenta fatiga colectiva severa
@@ -1183,6 +1237,11 @@ func schedulerPickCascade(registry *PoolRegistry, req schedulerPickRequest) sche
 					PoolID:       pool.ID,
 					AccountEmail: email,
 				})
+			}
+
+			// Preservar afinidad de proyecto en RAM volátil (RFC #9 / PR #13, cero I/O a disco)
+			if projectID != "" && registry != nil {
+				registry.SetProjectLeader(projectID, pool.ID, exactID)
 			}
 
 			// Task Auto-Downgrade: if turnCount >= 2 on expensive Claude reasoning pools or requested via header

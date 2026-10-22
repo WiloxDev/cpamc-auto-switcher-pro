@@ -258,7 +258,7 @@ type FlightRecorderEvent struct {
 // ---------------------------------------------------------------------------
 
 type writeTask struct {
-	kind string // "rotation", "health", "affinity", "audit", "flight"
+	kind string // "rotation", "health", "affinity", "audit", "flight", "flush"
 	data any
 }
 
@@ -443,6 +443,27 @@ func executeWriteTask(db *sql.DB, task writeTask) {
 			rec.LatencyMs,
 			rec.QuotaSnapshotJSON,
 		)
+
+	case "flush":
+		if doneCh, ok := task.data.(chan struct{}); ok && doneCh != nil {
+			close(doneCh)
+		}
+	}
+}
+
+// FlushWriteQueueForTest enqueues a flush sentinel into the asynchronous writeQueue
+// and blocks until the worker executes all preceding tasks and acknowledges completion.
+// This provides deterministic synchronization for tests without arbitrary sleeps.
+func FlushWriteQueueForTest() {
+	initWriteWorker()
+	done := make(chan struct{})
+	enqueueWrite(writeTask{
+		kind: "flush",
+		data: done,
+	})
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
 	}
 }
 

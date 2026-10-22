@@ -965,13 +965,13 @@ func TestSchedulerPickCircuitBreakerLoopProtector(t *testing.T) {
 		PoolID:       "pool-clau-1",
 		AccountEmail: "antigravity-a@gmail.com",
 	})
-	time.Sleep(100 * time.Millisecond)
+	analytics.FlushWriteQueueForTest()
 	analytics.SetSessionAffinity(analytics.SessionAffinity{
 		SessionID:    sessionID,
 		PoolID:       "pool-clau-1",
 		AccountEmail: "antigravity-a@gmail.com",
 	})
-	time.Sleep(150 * time.Millisecond)
+	analytics.FlushWriteQueueForTest()
 
 	// Turn 2 request: agent 02-apply asking for Claude, but turnCount has reached max_claude_turns (2)
 	reqTurn2 := schedulerPickRequest{
@@ -1004,22 +1004,18 @@ func TestSchedulerPickCircuitBreakerLoopProtector(t *testing.T) {
 		t.Errorf("expected diverted AuthID antigravity-a@gmail.com.json, got %s", resp.AuthID)
 	}
 
+	// Flush any pending write tasks (such as RecordAuditEvent) deterministically
+	analytics.FlushWriteQueueForTest()
+
 	foundBreaker := false
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		events, err := analytics.QueryAuditEvents(10)
-		if err == nil {
-			for _, e := range events {
-				if e.EventType == "CIRCUIT_BREAKER_LOOP_PREVENTED" {
-					foundBreaker = true
-					break
-				}
+	events, err := analytics.QueryAuditEvents(10)
+	if err == nil {
+		for _, e := range events {
+			if e.EventType == "CIRCUIT_BREAKER_LOOP_PREVENTED" {
+				foundBreaker = true
+				break
 			}
 		}
-		if foundBreaker {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
 	}
 	if !foundBreaker {
 		t.Errorf("expected CIRCUIT_BREAKER_LOOP_PREVENTED event recorded")
@@ -1115,3 +1111,80 @@ func TestSchedulerPick_SurvivalMode(t *testing.T) {
 		t.Errorf("expected survival mode to select fallback candidate, got %s", resp.AuthID)
 	}
 }
+
+func TestSchedulerPick_ProjectAffinityRAM(t *testing.T) {
+	registry := testModelProviderRegistry(t)
+	previous := activeRegistry
+	activeRegistry = func() *PoolRegistry { return registry }
+	t.Cleanup(func() { activeRegistry = previous })
+
+	// Pool agy has members: antigravity-a@gmail.com.json (Leader), antigravity-b@gmail.com.json (Reserve)
+	candidates := []schedulerCandidate{
+		{ID: "antigravity-a@gmail.com.json", Provider: "antigravity", Status: "active"},
+		{ID: "antigravity-b@gmail.com.json", Provider: "antigravity", Status: "active"},
+	}
+
+	// 1. ExtractProjectIdentity tests
+	reqH := schedulerPickRequest{
+		Options: schedulerOptions{
+			Headers: map[string][]string{
+				"X-Project-Identity": {"proj-alpha-123"},
+			},
+		},
+	}
+	if pID := extractProjectIdentity(reqH); pID != "proj-alpha-123" {
+		t.Errorf("expected proj-alpha-123, got %s", pID)
+	}
+
+	reqRoot := schedulerPickRequest{
+		Options: schedulerOptions{
+			Headers: map[string][]string{
+				"X-Workspace-Root": {"/home/wilox/projects/app-bravo"},
+			},
+		},
+	}
+	if pID := extractProjectIdentity(reqRoot); pID == "" {
+		t.Errorf("expected hashed workspace root, got empty string")
+	}
+
+	// 2. Set volatile in-memory affinity for Project Beta pointing to Reserve B
+	registry.SetProjectLeader("proj-beta-456", "pool-agy-1", "antigravity-b@gmail.com.json")
+	if leader, ok := registry.GetProjectLeader("proj-beta-456", "pool-agy-1"); !ok || leader != "antigravity-b@gmail.com.json" {
+		t.Fatalf("expected project leader antigravity-b@gmail.com.json in RAM, got %s (ok=%v)", leader, ok)
+	}
+
+	// 3. Request from Project Alpha (no affinity yet) -> picks default Leader A
+	reqAlpha := schedulerPickRequest{
+		Provider: "antigravity",
+		Model:    "gemini-3.8-flash-high",
+		Options: schedulerOptions{
+			Metadata: map[string]any{"requested_model": "agy/gemini-3.8-flash-high"},
+			Headers: map[string][]string{
+				"X-Project-Identity": {"proj-alpha-123"},
+			},
+		},
+		Candidates: candidates,
+	}
+	respAlpha := handleSchedulerPick(reqAlpha)
+	if !respAlpha.Handled || respAlpha.AuthID != "antigravity-a@gmail.com.json" {
+		t.Errorf("expected Project Alpha to get Leader A, got %+v", respAlpha)
+	}
+
+	// 4. Request from Project Beta (pinned to Reserve B in RAM) -> picks Reserve B without displacing global leader
+	reqBeta := schedulerPickRequest{
+		Provider: "antigravity",
+		Model:    "gemini-3.8-flash-high",
+		Options: schedulerOptions{
+			Metadata: map[string]any{"requested_model": "agy/gemini-3.8-flash-high"},
+			Headers: map[string][]string{
+				"X-Project-Identity": {"proj-beta-456"},
+			},
+		},
+		Candidates: candidates,
+	}
+	respBeta := handleSchedulerPick(reqBeta)
+	if !respBeta.Handled || respBeta.AuthID != "antigravity-b@gmail.com.json" {
+		t.Errorf("expected Project Beta to get pinned Reserve B, got %+v", respBeta)
+	}
+}
+

@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, watch, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
+import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 type CPAModel = {
@@ -1035,11 +1036,18 @@ export function initDynamicProvider(pi: ExtensionAPI): void {
         } catch {}
     }
 
+    const projectCwd = process.cwd();
+    const projectIdentity = createHash("sha256").update(projectCwd).digest("hex").slice(0, 16);
+
     pi.registerProvider(PROVIDER_ID, {
         name: "CPAMC",
         baseUrl: `${resolveBaseUrl()}/v1`,
         apiKey: "$CLIPROXYAPI_API_KEY",
         api: "openai-completions",
+        headers: {
+            "x-project-identity": projectIdentity,
+            "x-workspace-root": projectCwd,
+        },
         models: cachedModels.length > 0 ? (cachedModels as any) : undefined,
         compat: {
             supportsDeveloperRole: false,

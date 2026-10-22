@@ -151,4 +151,23 @@ describe("Dynamic Provider Filtering & Granular Coexistence", () => {
         assert.ok(ids.includes("gemini-3.8-flash-high"));
         assert.equal(reconciled.length, 3);
     });
+
+    it("verifies registration injects x-project-identity and x-workspace-root headers", () => {
+        let registeredProviderConfig: any = null;
+        const mockPi: any = {
+            registerProvider: (_id: string, config: any) => {
+                registeredProviderConfig = config;
+            },
+        };
+
+        const { initDynamicProvider } = require("./provider.ts");
+        initDynamicProvider(mockPi);
+
+        assert.ok(registeredProviderConfig, "provider must be registered");
+        assert.ok(registeredProviderConfig.headers, "provider must include headers");
+        assert.ok(registeredProviderConfig.headers["x-project-identity"], "x-project-identity header missing");
+        assert.equal(registeredProviderConfig.headers["x-workspace-root"], process.cwd());
+        assert.equal(typeof registeredProviderConfig.headers["x-project-identity"], "string");
+        assert.equal(registeredProviderConfig.headers["x-project-identity"].length, 16);
+    });
 });

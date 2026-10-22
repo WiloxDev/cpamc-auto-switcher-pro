@@ -271,11 +271,17 @@ type RegistryState struct {
 // PoolRegistry provides thread-safe in-memory caching and atomic file persistence
 // for pools created via GroupManager.
 type PoolRegistry struct {
-	mu            sync.RWMutex
-	filePath      string
-	pools         map[string]PoolDefinition // keyed by base_prefix (case-insensitive)
-	activeLeaders map[string]string         // volatile in-memory active leader per pool key
-	loaded        bool
+	mu             sync.RWMutex
+	filePath       string
+	pools          map[string]PoolDefinition // keyed by base_prefix (case-insensitive)
+	activeLeaders  map[string]string         // volatile in-memory active leader per pool key
+	projectLeaders map[string]projectLeaderEntry // volatile in-memory project affinity: "projectID:poolID" -> entry
+	loaded         bool
+}
+
+type projectLeaderEntry struct {
+	AuthFile   string
+	LastUsedMs int64
 }
 
 var (
@@ -559,6 +565,70 @@ func (r *PoolRegistry) SetActiveLeader(basePrefix, activeAuth string) {
 	r.mu.Unlock()
 
 	_ = r.Save()
+}
+
+// GetProjectLeader retrieves the pinned volatile in-memory account for a specific project
+// within a pool, respecting a 30-minute prompt cache TTL. It never touches disk.
+func (r *PoolRegistry) GetProjectLeader(projectID, poolID string) (string, bool) {
+	proj := strings.ToLower(strings.TrimSpace(projectID))
+	pID := strings.ToLower(strings.TrimSpace(poolID))
+	if proj == "" || pID == "" {
+		return "", false
+	}
+	key := proj + ":" + pID
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.projectLeaders == nil {
+		return "", false
+	}
+	entry, ok := r.projectLeaders[key]
+	if !ok || entry.AuthFile == "" {
+		return "", false
+	}
+
+	// 30-minute Prompt Cache TTL validity
+	now := time.Now().UnixMilli()
+	if now-entry.LastUsedMs > 30*60*1000 {
+		return entry.AuthFile, false
+	}
+
+	return entry.AuthFile, true
+}
+
+// SetProjectLeader records a volatile in-memory affinity assignment between a project
+// and a member account within a pool. It operates strictly in RAM without disk I/O.
+func (r *PoolRegistry) SetProjectLeader(projectID, poolID, authFile string) {
+	proj := strings.ToLower(strings.TrimSpace(projectID))
+	pID := strings.ToLower(strings.TrimSpace(poolID))
+	auth := strings.TrimSpace(authFile)
+	if proj == "" || pID == "" || auth == "" {
+		return
+	}
+	key := proj + ":" + pID
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.projectLeaders == nil {
+		r.projectLeaders = make(map[string]projectLeaderEntry)
+	}
+
+	// Evict expired entries if table grows large (> 500 entries)
+	now := time.Now().UnixMilli()
+	if len(r.projectLeaders) > 500 {
+		for k, e := range r.projectLeaders {
+			if now-e.LastUsedMs > 30*60*1000 {
+				delete(r.projectLeaders, k)
+			}
+		}
+	}
+
+	r.projectLeaders[key] = projectLeaderEntry{
+		AuthFile:   auth,
+		LastUsedMs: now,
+	}
 }
 
 // RotatePoolLeader advances leadership in the given pool to the next available member.
