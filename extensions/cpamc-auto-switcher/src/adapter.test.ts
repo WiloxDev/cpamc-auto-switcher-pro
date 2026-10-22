@@ -122,14 +122,23 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 		assert.equal(out, "");
 	});
 
-	it("renders sidebar card with Authfile, 5h, Sem and Reserva labels", () => {
+	it("renders sidebar card with colloquial unified labels and CUIDANDO EL CHAT block", () => {
 		const lines = formatSidebarQuotaCardLines(mockPoolPair, 48);
 		const text = lines.map((l: string) => stripAnsi(l)).join("\n");
-		assert.match(text, /\[LÍDER ACTIVA\]/);
-		assert.match(text, /Authfile\s+acc-1/);
-		assert.match(text, /5h:\s+10\/100/);
-		assert.match(text, /Sem:\s+50\/500/);
-		assert.match(text, /\[SIGUIENTE EN COLA\]/);
-		assert.match(text, /Reserva\s+acc-2/);
+		assert.match(text, /\[TRABAJANDO AHORA\]/);
+		assert.match(text, /Correo\s+acc-1/);
+		assert.match(text, /Cuota 5h:\s+10\/100/);
+		assert.match(text, /Cuota Sem:\s+50\/500/);
+		assert.match(text, /\[CUIDANDO EL CHAT\]/);
+		assert.match(text, /○ Todo limpio/);
+		assert.match(text, /\[LA QUE SIGUE\]/);
+		assert.match(text, /Correo\s+acc-2/);
+	});
+
+	it("renders sidebar card in active execution state with LIVE indicator", () => {
+		const lines = formatSidebarQuotaCardLines(mockPoolPair, 48, undefined, undefined, true);
+		const text = lines.map((l: string) => stripAnsi(l)).join("\n");
+		assert.match(text, /\[● Escribiendo\]/);
+		assert.match(text, /\[CUIDANDO EL CHAT\]/);
 	});
 });

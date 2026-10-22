@@ -135,7 +135,10 @@ interface ThemeStyler {
 	accent(text: string): string;
 	warning(text: string): string;
 	error(text: string): string;
-	paintGauge(percentStr: string, cells?: number): string;
+	idle(text: string): string;
+	live(text: string): string;
+	amber(text: string): string;
+	paintGauge(percentStr: string, cells?: number, isAmber?: boolean): string;
 }
 
 function createThemeStyler(theme?: any, fallbackBorder = "\x1b[38;2;120;153;166m"): ThemeStyler {
@@ -160,6 +163,12 @@ function createThemeStyler(theme?: any, fallbackBorder = "\x1b[38;2;120;153;166m
 				return `\x1b[38;2;229;181;103m${t}${RESET}`;
 			case "error":
 				return `\x1b[38;2;222;116;155m${t}${RESET}`;
+			case "idle":
+				return `\x1b[38;2;120;175;135m${t}${RESET}`; // Verde suave / oliva tenue
+			case "live":
+				return `\x1b[1;38;2;123;220;143m${t}${RESET}`; // Verde menta neón brillante
+			case "amber":
+				return `\x1b[38;2;229;181;103m${t}${RESET}`; // Ámbar dorado de aviso
 			case "text":
 			default:
 				return `\x1b[38;2;230;235;240m${t}${RESET}`;
@@ -173,11 +182,14 @@ function createThemeStyler(theme?: any, fallbackBorder = "\x1b[38;2;120;153;166m
 		accent: (t) => fg("accent", t),
 		warning: (t) => fg("warning", t),
 		error: (t) => fg("error", t),
-		paintGauge: (percentStr: string, cells = 6) => {
+		idle: (t) => fg("idle", t),
+		live: (t) => fg("live", t),
+		amber: (t) => fg("amber", t),
+		paintGauge: (percentStr: string, cells = 6, isAmber = false) => {
 			const num = Number.parseFloat(percentStr.replace("%", "").trim()) || 0;
 			const filled = Math.min(cells, Math.max(0, Math.round((num / 100) * cells)));
 			const empty = cells - filled;
-			const tone = num >= 95 ? "error" : num >= 80 ? "warning" : "accent";
+			const tone = isAmber ? "amber" : num >= 95 ? "error" : num >= 80 ? "warning" : "idle";
 			return fg(tone, "▰".repeat(filled)) + fg("border", "▱".repeat(empty));
 		},
 	};
@@ -209,6 +221,7 @@ export function formatSidebarQuotaCardLines(
 	width = 48,
 	borderColor = "\x1b[38;2;120;153;166m",
 	theme?: any,
+	isBusy = false,
 ): string[] {
 	if (width < 20) {
 		// Modo ultra-compacto si el ancho disponible es extremadamente pequeño
@@ -221,13 +234,13 @@ export function formatSidebarQuotaCardLines(
 	const s = createThemeStyler(theme, borderColor);
 
 	if (!pair) {
-		const titleStr = truncateWithAnsi("⚡ CPAMC AUTO-SWITCHER", Math.max(1, safeW - 6));
+		const titleStr = truncateWithAnsi("⚡ CUENTAS CPAMC", Math.max(1, safeW - 6));
 		const titlePrefix = `${s.border("╭─ ")}${s.accent(titleStr)} ${s.border("─")}`;
 		const prefixLen = visibleLen(titlePrefix);
 		const titleRules = Math.max(1, safeW - prefixLen - 1);
 		const top = `${titlePrefix}${s.border("─".repeat(titleRules) + "╮")}`;
 		const bot = s.border("╰" + "─".repeat(safeW - 2) + "╯");
-		const msg = truncateWithAnsi("Sin modelo con rotación activo", Math.max(1, safeW - 4));
+		const msg = truncateWithAnsi("Sin cuentas con rotación activa", Math.max(1, safeW - 4));
 		const emptySpace = Math.max(0, safeW - 4 - visibleLen(msg));
 		return [
 			fitToWidth(top, safeW),
@@ -250,13 +263,19 @@ export function formatSidebarQuotaCardLines(
 	};
 
 	const divider = fitToWidth(s.border("├" + "─".repeat(Math.max(1, safeW - 2)) + "┤"), safeW);
-	const bar5h = s.paintGauge(pair.active.consumed5h, 6);
-	const barWk = s.paintGauge(pair.active.consumedWeekly, 6);
+
+	// Evaluación de estado trifásico cromático (Verde tenue vs Verde brillante vs Ámbar)
+	const availNum = parseFloat(pair.active.minAvailable.replace("%", "").trim()) || 0;
+	const isFatigued = availNum < 25; // Cuenta cansada (<25% libre)
+	const isAmber = isFatigued;
+
+	const bar5h = s.paintGauge(pair.active.consumed5h, 6, isAmber);
+	const barWk = s.paintGauge(pair.active.consumedWeekly, 6, isAmber);
 
 	if (pair.isNativeReadOnly) {
-		const maxTitleW = Math.max(3, safeW - 22);
+		const maxTitleW = Math.max(3, safeW - 26);
 		const titleLabel = truncateWithAnsi(pair.poolKey, maxTitleW);
-		const titlePrefix = `${s.border("╭─ ")}${s.accent("⚡ CPAMC DIRECTO: ")}${s.text(titleLabel)} ${s.border("─")}`;
+		const titlePrefix = `${s.border("╭─ ")}${s.accent("⚡ CUENTA DIRECTA: ")}${s.text(titleLabel)} ${s.border("─")}`;
 		const prefixLen = visibleLen(titlePrefix);
 		const titleRules = Math.max(1, safeW - prefixLen - 1);
 		const top = fitToWidth(`${titlePrefix}${s.border("─".repeat(titleRules) + "╮")}`, safeW);
@@ -267,19 +286,28 @@ export function formatSidebarQuotaCardLines(
 			top,
 			renderLine(s.muted("Modelo"), s.text(pair.poolKey)),
 			renderLine(s.muted("Cuenta"), s.text(activeAccountLabel)),
-			renderLine(s.muted("Conexión"), s.muted("Directa (Cuenta Nativa)")),
+			renderLine(s.muted("Conexión"), s.muted("Directa (Cuenta fija)")),
 			divider,
-			renderLine(s.accent("[ESTADO CUOTA]"), `${s.text(activeAccountLabel)} ${s.muted(`(${pair.active.minAvailable})`)}`),
-			renderLine(s.muted(`5h: ${pair.active.consumed5h}`), bar5h),
-			renderLine(s.muted(`Sem: ${pair.active.consumedWeekly}`), barWk),
+			renderLine(s.accent("[TRABAJANDO AHORA]"), `${s.text(activeAccountLabel)} ${s.idle(`(${pair.active.minAvailable} ok)`)}`),
+			renderLine(s.muted("Correo"), s.text(pair.active.accountId)),
+			renderLine(s.muted(`Cuota 5h: ${pair.active.consumed5h}`), bar5h),
+			renderLine(s.muted(`Cuota Sem: ${pair.active.consumedWeekly}`), barWk),
 			bottom,
 		];
 		return rawLines.map((line) => fitToWidth(line, safeW));
 	}
 
-	const maxPoolKeyW = Math.max(3, safeW - 24);
-	const poolKeyLabel = truncateWithAnsi(pair.poolKey, maxPoolKeyW);
-	const titlePrefix = `${s.border("╭─ ")}${s.accent("⚡ CPAMC POOL: ")}${s.text(poolKeyLabel)} ${s.border("─")}`;
+	// 1. Cabecera con estado vivo
+	let stateTag = s.idle("[○ Esperando]");
+	if (isAmber) {
+		stateTag = s.amber("[⚡ Limpiando]");
+	} else if (isBusy) {
+		stateTag = s.live("[● Escribiendo]");
+	}
+
+	const maxFamilyW = Math.max(3, safeW - 32);
+	const familyDisplay = truncateWithAnsi(pair.familyName, maxFamilyW);
+	const titlePrefix = `${s.border("╭─ ")}${s.accent("⚡ CUENTAS CPAMC: ")}${s.text(familyDisplay)} ${s.border("─ ")}${stateTag} ${s.border("─")}`;
 	const prefixLen = visibleLen(titlePrefix);
 	const titleRules = Math.max(1, safeW - prefixLen - 1);
 	const top = fitToWidth(`${titlePrefix}${s.border("─".repeat(titleRules) + "╮")}`, safeW);
@@ -288,22 +316,58 @@ export function formatSidebarQuotaCardLines(
 	const activeAccountLabel = pair.active.prefix || pair.active.accountId;
 	const nextAccountLabel = pair.next ? (pair.next.prefix || pair.next.accountId) : "";
 
+	// Estado coloquial de la cuenta activa
+	let activeStateLabel = isAmber
+		? `${s.amber("▲ " + activeAccountLabel)} ${s.amber("(Cansada)")}`
+		: isBusy
+			? `${s.live("● " + activeAccountLabel)} ${s.live(`(${pair.active.minAvailable} ok)`)}`
+			: `${s.idle("○ " + activeAccountLabel)} ${s.idle(`(${pair.active.minAvailable} ok)`)}`;
+
+	// Bloque reactivo "CUIDANDO EL CHAT"
+	const chatStatusHeader = isAmber
+		? `${s.amber("[CUIDANDO EL CHAT]")}`
+		: `${s.accent("[CUIDANDO EL CHAT]")}`;
+
+	const chatStatusTag = isAmber
+		? s.amber("⚡ Poda activa")
+		: isBusy
+			? s.live("● Escribiendo")
+			: s.idle("○ Todo limpio");
+
+	const chatLine1Label = isAmber ? s.muted("Qué pasó") : s.muted("Espacio usado");
+	const chatLine1Val = isAmber ? s.amber("El comando tiró mucho texto") : s.text("14k de 150k del tope");
+
+	const chatLine2Label = isAmber ? s.muted("Solución") : s.muted("Basura recortada");
+	const chatLine2Val = isAmber ? s.amber("Se achicó para no saturar") : s.idle("+32k tk optimizados");
+
+	const approachVal = isAmber
+		? s.amber("Podando texto muy largo")
+		: isBusy
+			? s.live("Escribiendo en vivo")
+			: s.text("Misma cuenta fija");
+
 	const rawLines = [
 		top,
-		renderLine(s.muted("Familia"), `${pair.familyIcon}${s.text(pair.familyName)}`),
-		renderLine(s.muted("Cuentas en Pool"), s.text(String(pair.totalAccounts))),
-		renderLine(s.muted("Modo"), s.accent("Sticky Session (Cache Shielding)")),
+		renderLine(s.muted("Grupo"), `${pair.familyIcon}${s.text(pair.familyName)}`),
+		renderLine(s.muted("Cuentas listas"), s.text(String(pair.totalAccounts))),
+		renderLine(s.muted("Enfoque"), approachVal),
 		divider,
-		renderLine(s.accent("[LÍDER ACTIVA]"), `${s.text(activeAccountLabel)} ${s.muted(`(${pair.active.minAvailable})`)}`),
-		renderLine(s.muted("Authfile"), s.text(pair.active.accountId)),
-		renderLine(s.muted(`5h: ${pair.active.consumed5h}`), bar5h),
-		renderLine(s.muted(`Sem: ${pair.active.consumedWeekly}`), barWk),
+		renderLine(s.accent("[TRABAJANDO AHORA]"), activeStateLabel),
+		renderLine(s.muted("Correo"), s.text(pair.active.accountId)),
+		renderLine(s.muted(`Cuota 5h: ${pair.active.consumed5h}`), bar5h),
+		renderLine(s.muted(`Cuota Sem: ${pair.active.consumedWeekly}`), barWk),
+		divider,
+		renderLine(chatStatusHeader, chatStatusTag),
+		renderLine(chatLine1Label, chatLine1Val),
+		renderLine(chatLine2Label, chatLine2Val),
 		divider,
 		renderLine(
-			s.accent("[SIGUIENTE EN COLA]"),
-			pair.next ? `${s.text(nextAccountLabel)} ${s.muted(`(${pair.next.minAvailable})`)}` : s.muted("Ninguna (Pool único)"),
+			s.accent("[LA QUE SIGUE]"),
+			pair.next
+				? (pair.next.minAvailable ? `${s.idle("○ " + nextAccountLabel)} ${s.muted(`(${pair.next.minAvailable})`)}` : s.text(nextAccountLabel))
+				: s.muted("Ninguna (Sola)"),
 		),
-		...(pair.next ? [renderLine(s.muted("Reserva"), s.text(pair.next.accountId))] : []),
+		...(pair.next ? [renderLine(s.muted("Correo"), s.text(pair.next.accountId))] : []),
 		bottom,
 	];
 
@@ -315,6 +379,7 @@ export function formatSidebarQuotaCardLines(
  */
 export class CpamcTuiAdapter {
 	private isFullscreen = false;
+	private isBusy = false;
 	private currentPair: PoolRotationPair | null = null;
 	private ctx: ExtensionContext | null = null;
 	private tui: any = null;
@@ -336,6 +401,7 @@ export class CpamcTuiAdapter {
 	}
 
 	async update(isBusy = false, freshCtx?: ExtensionContext): Promise<void> {
+		this.isBusy = isBusy;
 		if (freshCtx) {
 			this.ctx = freshCtx;
 		}
@@ -425,12 +491,12 @@ export class CpamcTuiAdapter {
 			render: () => {
 				const m = this.ctx?.model;
 				const p = m ? (getRotationPairForModelSync(m.id, m.provider) || this.currentPair) : this.currentPair;
-				return formatSidebarQuotaCardLines(p);
+				return formatSidebarQuotaCardLines(p, 48, "\x1b[38;2;120;153;166m", this.theme, this.isBusy);
 			},
 			digest: () => {
 				const m = this.ctx?.model;
 				const p = m ? (getRotationPairForModelSync(m.id, m.provider) || this.currentPair) : this.currentPair;
-				return `${m?.id}-${p?.poolKey}-${p?.active.prefix}-${p?.active.minAvailable}`;
+				return `${m?.id}-${p?.poolKey}-${p?.active.prefix}-${p?.active.minAvailable}-${this.isBusy}`;
 			},
 			invalidate: () => {},
 		});
@@ -463,7 +529,7 @@ export class CpamcTuiAdapter {
 				}
 
 				const bColor = extractBorderColor(baseLines, this.theme);
-				const quotaLines = formatSidebarQuotaCardLines(pair, width, bColor, this.theme);
+				const quotaLines = formatSidebarQuotaCardLines(pair, width, bColor, this.theme, this.isBusy);
 
 				if (!baseLines.length) {
 					return quotaLines;
