@@ -28,7 +28,7 @@ export async function resolve(specifier, context, nextResolve) {
 
 register("data:text/javascript," + encodeURIComponent(loaderCode));
 
-const { isCleanIncludedModel, buildPoolLabelMap, reconcileActivePoolFacades } = await import("./provider.js");
+const { isCleanIncludedModel, buildPoolLabelMap, reconcileActivePoolFacades, initDynamicProvider } = await import("./provider.js");
 
 describe("Dynamic Provider Filtering & Granular Coexistence", () => {
     const mockFilterData = {
@@ -160,7 +160,6 @@ describe("Dynamic Provider Filtering & Granular Coexistence", () => {
             },
         };
 
-        const { initDynamicProvider } = require("./provider.ts");
         initDynamicProvider(mockPi);
 
         assert.ok(registeredProviderConfig, "provider must be registered");

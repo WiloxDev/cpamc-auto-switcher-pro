@@ -162,6 +162,29 @@ func TestSQLiteAnalyticsLifecycle(t *testing.T) {
 		t.Errorf("expected saved health with coolUntil=%d score=95.5, got %+v", coolUntil, h)
 	}
 
+	// Validate partial update does not corrupt pre-existing metrics
+	newCoolUntil := coolUntil + 5000
+	SaveAccountHealth(AccountHealth{
+		AccountKey:  "leader@gmail.com",
+		Email:       "leader@gmail.com",
+		CoolUntilMs: newCoolUntil,
+		HealthScore: 0.0, // must not overwrite 95.5
+		Window5hPct: 0.0, // must not overwrite 82.0
+		WeeklyPct:   0.0, // must not overwrite 90.0
+	})
+	FlushWriteQueueForTest()
+	healthMapAfter, err := GetAllAccountHealth()
+	if err != nil {
+		t.Fatalf("GetAllAccountHealth after partial update failed: %v", err)
+	}
+	hAfter := healthMapAfter["leader@gmail.com"]
+	if hAfter.CoolUntilMs != newCoolUntil {
+		t.Errorf("expected updated coolUntil=%d, got %d", newCoolUntil, hAfter.CoolUntilMs)
+	}
+	if hAfter.HealthScore != 95.5 || hAfter.Window5hPct != 82.0 || hAfter.WeeklyPct != 90.0 {
+		t.Errorf("metrics were corrupted by partial update: %+v", hAfter)
+	}
+
 	// Validate Session Affinity
 	aff, ok := GetSessionAffinity("session-xyz-123", "Pool-01-gemini")
 	if !ok || aff.AccountEmail != "leader@gmail.com" {

@@ -52,3 +52,17 @@ jobs:
           cache-dependency-path: plugins/auto-switcher-pro/web/package-lock.json
       - run: npm ci
       - run: npx vitest run
+
+  extension:
+    name: Pi Extension tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extensions/cpamc-auto-switcher
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run tests
+        run: node --experimental-strip-types --test src/*.test.ts

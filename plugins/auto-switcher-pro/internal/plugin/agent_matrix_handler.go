@@ -40,19 +40,19 @@ type cachedHarnessVersion struct {
 
 // HarnessVersionAudit represents real-time version audit telemetry across local and official Gentleman upstream.
 type HarnessVersionAudit struct {
-	HarnessID         string `json:"harness_id"`
-	HarnessName       string `json:"harness_name"`
-	LocalVersion      string `json:"local_version"`
-	LocalDate         string `json:"local_date"`
-	LocalStatus       string `json:"local_status"`
-	NPMVersion        string `json:"npm_version"`
-	NPMDate           string `json:"npm_date"`
-	NPMStatus         string `json:"npm_status"`
-	GitHubVersion     string `json:"github_version"`
-	GitHubCommit      string `json:"github_commit"`
-	GitHubStatus      string `json:"github_status"`
-	IsUpToDate        bool   `json:"is_up_to_date"`
-	CheckedAt         string `json:"checked_at"`
+	HarnessID     string `json:"harness_id"`
+	HarnessName   string `json:"harness_name"`
+	LocalVersion  string `json:"local_version"`
+	LocalDate     string `json:"local_date"`
+	LocalStatus   string `json:"local_status"`
+	NPMVersion    string `json:"npm_version"`
+	NPMDate       string `json:"npm_date"`
+	NPMStatus     string `json:"npm_status"`
+	GitHubVersion string `json:"github_version"`
+	GitHubCommit  string `json:"github_commit"`
+	GitHubStatus  string `json:"github_status"`
+	IsUpToDate    bool   `json:"is_up_to_date"`
+	CheckedAt     string `json:"checked_at"`
 }
 
 func isAgentMatrixPath(path string) bool {

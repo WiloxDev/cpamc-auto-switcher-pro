@@ -357,13 +357,14 @@ func executeWriteTask(db *sql.DB, task writeTask) {
 			health_score, window_5h_pct, weekly_pct, last_used_ms, updated_at_ms
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(account_key) DO UPDATE SET
+			email=CASE WHEN excluded.email != '' THEN excluded.email ELSE account_health.email END,
 			cool_until_ms=excluded.cool_until_ms,
-			hourly_req_count=excluded.hourly_req_count,
-			consecutive_errors=excluded.consecutive_errors,
-			health_score=excluded.health_score,
-			window_5h_pct=excluded.window_5h_pct,
-			weekly_pct=excluded.weekly_pct,
-			last_used_ms=excluded.last_used_ms,
+			hourly_req_count=CASE WHEN excluded.hourly_req_count > 0 THEN excluded.hourly_req_count ELSE account_health.hourly_req_count END,
+			consecutive_errors=CASE WHEN excluded.consecutive_errors > 0 THEN excluded.consecutive_errors ELSE account_health.consecutive_errors END,
+			health_score=CASE WHEN excluded.health_score > 0 THEN excluded.health_score ELSE account_health.health_score END,
+			window_5h_pct=CASE WHEN excluded.window_5h_pct > 0 THEN excluded.window_5h_pct ELSE account_health.window_5h_pct END,
+			weekly_pct=CASE WHEN excluded.weekly_pct > 0 THEN excluded.weekly_pct ELSE account_health.weekly_pct END,
+			last_used_ms=CASE WHEN excluded.last_used_ms > 0 THEN excluded.last_used_ms ELSE account_health.last_used_ms END,
 			updated_at_ms=excluded.updated_at_ms`
 		_, _ = db.Exec(stmt,
 			h.AccountKey,

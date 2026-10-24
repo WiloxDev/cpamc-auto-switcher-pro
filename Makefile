@@ -1,4 +1,4 @@
-.PHONY: all build build-amd64 build-arm64 test test-go test-web clean check-hygiene help
+.PHONY: all build build-amd64 build-arm64 test test-go test-web test-extension clean check-hygiene help
 
 all: build
 
@@ -6,9 +6,10 @@ help:
 	@echo "Comandos disponibles:"
 	@echo "  make build          - Compila el plugin para Linux amd64 hacia bin/"
 	@echo "  make build-arm64    - Compila el plugin para Linux arm64 hacia bin/"
-	@echo "  make test           - Ejecuta todas las pruebas (Go y Web)"
+	@echo "  make test           - Ejecuta todas las pruebas (Go, Web y Extensión Pi)"
 	@echo "  make test-go        - Ejecuta las pruebas unitarias de Go"
 	@echo "  make test-web       - Ejecuta la suite de pruebas de Vitest"
+	@echo "  make test-extension - Ejecuta las pruebas de la extensión de Pi"
 	@echo "  make check-hygiene  - Verifica que no existan artefactos de compilación fuera de bin/"
 	@echo "  make clean          - Limpia el directorio bin/"
 
@@ -18,7 +19,7 @@ build:
 build-arm64:
 	@./scripts/build-plugin.sh arm64
 
-test: test-go test-web check-hygiene
+test: test-go test-web test-extension check-hygiene
 
 test-go:
 	@echo "==> Ejecutando pruebas de Go..."
@@ -28,6 +29,10 @@ test-go:
 test-web:
 	@echo "==> Ejecutando pruebas de Vitest..."
 	@cd plugins/auto-switcher-pro/web && npx vitest run
+
+test-extension:
+	@echo "==> Ejecutando pruebas de la extensión Pi..."
+	@cd extensions/cpamc-auto-switcher && npm test
 
 check-hygiene:
 	@echo "==> Verificando higiene de código fuente..."

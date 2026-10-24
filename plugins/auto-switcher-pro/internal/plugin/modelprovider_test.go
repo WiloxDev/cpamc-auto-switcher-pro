@@ -958,9 +958,9 @@ func TestSchedulerPickTaskAutoDowngradeAndTriageWarmup(t *testing.T) {
 }
 
 func TestSchedulerPickCircuitBreakerLoopProtector(t *testing.T) {
-	_, err := analytics.InitDB()
+	_, err := analytics.ResetDBForTest(filepath.Join(t.TempDir(), "test_rotations.db"))
 	if err != nil {
-		t.Fatalf("InitDB failed: %v", err)
+		t.Fatalf("ResetDBForTest failed: %v", err)
 	}
 
 	registry := testModelProviderRegistry(t)

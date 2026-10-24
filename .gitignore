@@ -4,6 +4,13 @@
 /odd
 *.so
 *.h
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.epoch
+*-license.json
+*-state.json
 
 # Node / build caches
 node_modules/

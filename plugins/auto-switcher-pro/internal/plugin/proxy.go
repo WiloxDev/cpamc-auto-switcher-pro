@@ -124,7 +124,9 @@ func (h *sseProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if origin := r.Header.Get("Origin"); origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 	flusher, ok := w.(http.Flusher)
@@ -198,11 +200,19 @@ func (h *sseProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if n > 0 {
 				chunk := make([]byte, n)
 				copy(chunk, buf[:n])
-				dataCh <- chunk
+				select {
+				case dataCh <- chunk:
+				case <-ctx.Done():
+					return
+				}
 			}
 			if readErr != nil {
 				if readErr != io.EOF {
-					errCh <- readErr
+					select {
+					case errCh <- readErr:
+					case <-ctx.Done():
+						return
+					}
 				}
 				close(dataCh)
 				return

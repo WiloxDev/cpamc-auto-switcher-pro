@@ -51,7 +51,10 @@ func handleManifestHTTP(req ManagementRequestPayload) ([]byte, error) {
 	}
 
 	reg := activeRegistry()
-	pools := reg.ListPools()
+	var pools []PoolDefinition
+	if reg != nil {
+		pools = reg.ListPools()
+	}
 	pe := GetPredictiveEngine()
 	liveQuotas := pe.GetAllLiveQuotas()
 

@@ -375,12 +375,21 @@ func TestAgentMatrix_DirectUpstreamModelPersistence(t *testing.T) {
 
 	profilesPath := filepath.Join(home, ".gentle-shell", "agent", "profiles.json")
 	var backup []byte
+	hadProfiles := false
 	if data, err := os.ReadFile(profilesPath); err == nil {
 		backup = data
+		hadProfiles = true
 		defer func() {
 			_ = os.WriteFile(profilesPath, backup, 0644)
 		}()
+	} else {
+		defer func() {
+			if !hadProfiles {
+				_ = os.Remove(profilesPath)
+			}
+		}()
 	}
+	_ = os.MkdirAll(filepath.Dir(profilesPath), 0755)
 
 	// 1. Save an upstream model selection (e.g. openai-codex/gpt-5.1-sol) for orchestrator in gentle_shell
 	input := map[string]any{
@@ -599,5 +608,3 @@ func TestAgentMatrix_HarnessVersionAudit(t *testing.T) {
 		t.Errorf("expected GitHubVersion to be resolved, got empty")
 	}
 }
-
-
