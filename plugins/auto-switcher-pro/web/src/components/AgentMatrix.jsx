@@ -111,6 +111,7 @@ export default function AgentMatrix() {
   const [modelThinkingLevels, setModelThinkingLevels] = useState({});
   const [poolDetails, setPoolDetails] = useState({});
   const [upstreamModels, setUpstreamModels] = useState([]);
+  const [totalRequests, setTotalRequests] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -210,6 +211,7 @@ export default function AgentMatrix() {
     setModelThinkingLevels(data.model_thinking_levels || {});
     setPoolDetails(data.pool_details || {});
     setUpstreamModels(data.upstream_models || []);
+    setTotalRequests(typeof data.total_requests === 'number' ? data.total_requests : 0);
 
     // Ensure activeUniverse matches an available harness or 'all'
     setActiveUniverse((prev) => {
@@ -580,6 +582,18 @@ export default function AgentMatrix() {
           claudePressure += concurrency * (thinkWeight === 0 ? 1 : thinkWeight);
         }
       }
+    }
+
+    // Si no se registra tráfico previo observado en SQLite (instalación limpia / inicio en reposo),
+    // reportar estado en espera/teórico para evitar falsas alarmas de agotamiento.
+    if (totalRequests === 0) {
+      return {
+        level: 'idle',
+        badge: '⚪ Modo Standby / Sin Tráfico',
+        autonomy: 'En espera de ejecuciones',
+        desc: 'Topología configurada. La autonomía y el estrés se computarán al registrar tráfico real.',
+        claudePressure,
+      };
     }
 
     if (claudePressure <= 4) {

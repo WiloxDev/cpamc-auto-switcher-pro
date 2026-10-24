@@ -522,4 +522,38 @@ describe('AgentMatrix Component', () => {
     expect(screen.getByTitle('Minimal (Mínimo)')).toBeDefined();
     expect(screen.getByTitle('Max (Máximo)')).toBeDefined();
   });
+
+  it('reporta estado Standby cuando no hay tráfico registrado (instalación limpia)', async () => {
+    vi.spyOn(managementClient, 'fetchAgentMatrix').mockResolvedValue({
+      ok: true,
+      jok3r_detected: false,
+      available_pools: ['Pool-01-gemini', 'Pool-04-claude'],
+      pool_capabilities: { 'Pool-01-gemini': true, 'Pool-04-claude': true },
+      pool_details: {
+        'Pool-04-claude': { id: 'Pool-04-claude', target_model: 'claude-sonnet-4-6', total_members: 4, reserves_count: 3 },
+      },
+      gentle_agents: [
+        {
+          universe: 'gentle_ai',
+          agent_id: 'orchestrator',
+          displayName: '👑 ORQUESTADOR GENTLE',
+          is_orchestrator: true,
+          primary_pool: 'Pool-04-claude',
+          thinking_level: 'high',
+          concurrency: 1,
+        },
+      ],
+      total_requests: 0,
+    });
+
+    render(<AgentMatrix />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Matriz de Agentes & Orquestación')).toBeDefined();
+    });
+
+    expect(screen.getByText(/Modo Standby \/ Sin Tráfico/i)).toBeDefined();
+    expect(screen.getByText(/En espera de ejecuciones/i)).toBeDefined();
+    expect(screen.queryByText(/Estrés Crítico de Cuota/i)).toBeNull();
+  });
 });

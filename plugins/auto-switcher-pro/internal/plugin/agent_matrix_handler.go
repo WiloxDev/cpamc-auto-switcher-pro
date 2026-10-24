@@ -138,6 +138,7 @@ type AgentMatrixPayload struct {
 	ModelThinkingLevels map[string][]string       `json:"model_thinking_levels"` // pool_id or model_id -> ["low", "medium", ...]
 	PoolDetails         map[string]PoolDetailInfo `json:"pool_details"`          // pool_id -> physical reality & model
 	UpstreamModels      []DiscoveredUpstreamModel `json:"upstream_models"`       // Unassigned accounts & upstream direct models
+	TotalRequests       int64                     `json:"total_requests"`         // Tráfico total observado en SQLite
 	Message             string                    `json:"message,omitempty"`
 }
 
@@ -926,6 +927,11 @@ func getAgentMatrixResponse() ([]byte, error) {
 	// 2. Fetch dynamic manifests and discovered harnesses
 	harnesses, gentleAgents, jok3rAgents, jok3rDetected := loadManifestOrDiscover(availablePools, poolCapabilities, modelThinkingLevels)
 
+	var totalRequests int64
+	if snap, err := analytics.QueryMetrics("24h"); err == nil && snap != nil {
+		totalRequests = snap.Totals.TotalRequests
+	}
+
 	payload := AgentMatrixPayload{
 		OK:                  true,
 		Harnesses:           harnesses,
@@ -937,6 +943,7 @@ func getAgentMatrixResponse() ([]byte, error) {
 		ModelThinkingLevels: modelThinkingLevels,
 		PoolDetails:         poolDetails,
 		UpstreamModels:      upstreamModels,
+		TotalRequests:       totalRequests,
 	}
 
 	return jsonManagementResponse(http.StatusOK, payload)

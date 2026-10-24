@@ -47,7 +47,7 @@ func TestSQLiteAnalyticsLifecycle(t *testing.T) {
 	})
 
 	// Wait for worker queue to flush to SQLite
-	time.Sleep(150 * time.Millisecond)
+	FlushWriteQueueForTest()
 
 	// 2. Query metrics
 	snap, err := QueryMetrics("24h")
@@ -150,7 +150,7 @@ func TestSQLiteAnalyticsLifecycle(t *testing.T) {
 	}
 
 	// Wait for worker queue to flush
-	time.Sleep(150 * time.Millisecond)
+	FlushWriteQueueForTest()
 
 	// Validate Account Health
 	healthMap, err := GetAllAccountHealth()
