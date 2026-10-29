@@ -273,4 +273,36 @@ describe("AutoSwitcherRunawayGuard - Anti-Bucle y Protección de Contexto", () =
 		assert.equal(tele3.circuitBreakerTripped, false);
 		assert.equal(tele3.incidentId, undefined);
 	});
+
+	it("10. Provee countdown de 30s y auto-fading hacia Centinela Limpio", () => {
+		const guard = new AutoSwitcherRunawayGuard();
+		guard.checkTool({ toolName: "bash", input: { command: "objdump -d test" } });
+
+		const tele1 = guard.getTelemetry();
+		assert.equal(tele1.circuitBreakerTripped, true);
+		assert.ok(typeof tele1.countdownSec === "number" && tele1.countdownSec <= 30 && tele1.countdownSec >= 28);
+		assert.equal(tele1.mitigatedCount, 0);
+
+		// Simular expiración de los 30s
+		(guard as any).lastTimestamp = Date.now() - 31000;
+		const tele2 = guard.getTelemetry();
+		assert.equal(tele2.circuitBreakerTripped, false, "debe autodesvanecerse al expirar el countdown");
+		assert.equal(tele2.mitigatedCount, 1, "debe contabilizar la mitigación");
+		assert.ok(tele2.lastIncident, "el incidente original debe seguir disponible para autopsia");
+	});
+
+	it("11. Despeje inmediato por acción del usuario (Dual-Trigger) preservando histórico", () => {
+		const guard = new AutoSwitcherRunawayGuard();
+		guard.checkTool({ toolName: "bash", input: { command: "docker exec -it app sh" } });
+
+		assert.equal(guard.getTelemetry().circuitBreakerTripped, true);
+
+		// Usuario toma control / da orden directa -> fadeIncident inmediato
+		guard.fadeIncident();
+
+		const tele = guard.getTelemetry();
+		assert.equal(tele.circuitBreakerTripped, false);
+		assert.equal(tele.mitigatedCount, 1);
+		assert.ok(tele.tokensSavedEstimate > 0);
+	});
 });

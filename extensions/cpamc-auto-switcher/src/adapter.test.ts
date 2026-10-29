@@ -155,7 +155,19 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 		assert.match(text, /● En guardia/);
 		assert.match(text, /Turno en vivo:/);
 		assert.match(text, /0\/15 acciones/);
-		assert.match(text, /Anti-Sobrediseño:\s+Activo \(KISS\/YAGNI\)/);
+		assert.match(text, /Guardia:\s+0 bucles · Código protegido/);
+	});
+
+	it("renders dynamic telemetría viva in Guardia when incidents have been mitigated", () => {
+		const mitigatedTelemetry: any = {
+			totalToolCount: 0,
+			circuitBreakerTripped: false,
+			mitigatedCount: 1,
+			tokensSavedEstimate: 30000,
+		};
+		const lines = formatSidebarQuotaCardLines(mockPoolPair, 48, undefined, undefined, false, mitigatedTelemetry);
+		const text = lines.map((l: string) => stripAnsi(l)).join("\n");
+		assert.match(text, /Guardia:\s+1 mitigado \(~30k tk salvados\)/);
 	});
 
 	it("renders sidebar card in active execution state with LIVE indicator", () => {
@@ -385,6 +397,25 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 		assert.equal(originalRailHandled, true, "click derecho debe delegarse al rail nativo");
 		assert.equal(adapter.getAccordionMode(), "collapsed", "click derecho no debe abrir el acordeón");
 
+		// Test G: Click en la línea de Diagnóstico o /incident abre el Modal de Autopsia
+		let modalOpened = false;
+		adapter.onOpenIncidentModal = () => { modalOpened = true; };
+
+		// Simular disyuntor activo en runawayGuard
+		(runawayGuard as any).isTripped = true;
+		(runawayGuard as any).tripReason = "PROHIBITED_COMMAND";
+		(runawayGuard as any).lastTimestamp = Date.now();
+
+		const trippedLines = formatSidebarQuotaCardLines(mockPoolPair, 48);
+		const diagRelativeIdx = trippedLines.findIndex((l: string) => l.includes("Diagnóstico"));
+		assert.ok(diagRelativeIdx !== -1, "línea de diagnóstico debe existir");
+
+		// Click exactamente en la fila de diagnóstico
+		const diagClickRes = decorated2.handleMouse({ type: "click", button: "left", y: 4 + diagRelativeIdx });
+		assert.equal(diagClickRes?.handled, true);
+		assert.equal(modalOpened, true, "click en fila de Diagnóstico debe invocar onOpenIncidentModal");
+
+		runawayGuard.dismissIncident();
 		adapter.destroy();
 	});
 

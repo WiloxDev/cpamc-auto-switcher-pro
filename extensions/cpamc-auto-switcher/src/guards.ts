@@ -9,6 +9,7 @@ export const MAX_TOTAL_TOOLS_PER_TURN = 15;
 export const MAX_CYCLE_REPETITIONS = 3;
 export const CYCLE_WINDOW_SIZE = 6;
 export const INCIDENT_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas máximo de validez
+export const DISYUNTOR_COUNTDOWN_SEC = 30; // 30s de alerta activa antes de transición suave a centinela
 
 /**
  * Resuelve la ruta en memoria/shm del incidente para un proyecto y sesión específicos.
@@ -46,6 +47,8 @@ export interface RunawayGuardTelemetry {
 	circuitBreakerReason?: "STEP_BUDGET_EXCEEDED" | "CYCLE_DETECTED" | "PROHIBITED_COMMAND" | "UPSTREAM_VELOCITY";
 	incidentId?: string;
 	tokensSavedEstimate: number;
+	countdownSec?: number;
+	mitigatedCount?: number;
 	// Acumulados de la sesión
 	blockedIntrospections: number;
 	blockedBashEvasions: number;
@@ -92,6 +95,7 @@ export class AutoSwitcherRunawayGuard {
 	private tripReason?: "STEP_BUDGET_EXCEEDED" | "CYCLE_DETECTED" | "PROHIBITED_COMMAND" | "UPSTREAM_VELOCITY";
 	private currentIncident?: IncidentRecord;
 	private tokensSaved = 0;
+	private mitigatedCount = 0;
 
 	private lastReason?: string;
 	private lastTimestamp?: number;
@@ -119,7 +123,9 @@ export class AutoSwitcherRunawayGuard {
 				tripReason: this.tripReason,
 				tokensSaved: this.tokensSaved,
 				lastReason: this.lastReason,
-				timestamp: Date.now(),
+				timestamp: this.lastTimestamp || Date.now(),
+				mitigatedCount: this.mitigatedCount,
+				isTripped: this.isTripped,
 				cwd: this.currentCwd,
 				sessionId: this.currentSessionId,
 			};
@@ -143,10 +149,19 @@ export class AutoSwitcherRunawayGuard {
 					}
 
 					this.currentIncident = data.incident;
-					this.isTripped = true;
-					this.tripReason = data.tripReason || "CYCLE_DETECTED";
 					this.tokensSaved = data.tokensSaved || 30000;
 					this.lastReason = data.lastReason || "Incidente persistido en memoria";
+					this.lastTimestamp = recordTime;
+					this.mitigatedCount = typeof data.mitigatedCount === "number" ? data.mitigatedCount : 1;
+
+					// Si pasaron más de DISYUNTOR_COUNTDOWN_SEC o fue mitigado, transición a centinela
+					if (now - recordTime >= DISYUNTOR_COUNTDOWN_SEC * 1000 || data.isTripped === false) {
+						this.isTripped = false;
+						this.tripReason = undefined;
+					} else {
+						this.isTripped = true;
+						this.tripReason = data.tripReason || "CYCLE_DETECTED";
+					}
 					return true;
 				}
 			}
@@ -154,11 +169,21 @@ export class AutoSwitcherRunawayGuard {
 		return false;
 	}
 
+	fadeIncident(): void {
+		if (this.isTripped) {
+			this.isTripped = false;
+			this.tripReason = undefined;
+			this.mitigatedCount = Math.max(1, this.mitigatedCount + 1);
+			this.persistIncidentToShm();
+		}
+	}
+
 	dismissIncident(): void {
 		this.isTripped = false;
 		this.tripReason = undefined;
 		this.currentIncident = undefined;
 		this.tokensSaved = 0;
+		this.mitigatedCount = 0;
 		this.lastReason = undefined;
 		try {
 			const shmPath = this.getShmPath();
@@ -340,6 +365,7 @@ export class AutoSwitcherRunawayGuard {
 		this.tripReason = undefined;
 		this.currentIncident = undefined;
 		this.tokensSaved = 0;
+		this.mitigatedCount = 0;
 		this.lastReason = undefined;
 		this.lastTimestamp = undefined;
 	}
@@ -347,6 +373,14 @@ export class AutoSwitcherRunawayGuard {
 	getTelemetry(): RunawayGuardTelemetry {
 		if (!this.isTripped) {
 			this.loadIncidentFromShm();
+		}
+		let countdownSec = 0;
+		if (this.isTripped && this.lastTimestamp) {
+			const elapsedSec = Math.floor((Date.now() - this.lastTimestamp) / 1000);
+			countdownSec = Math.max(0, DISYUNTOR_COUNTDOWN_SEC - elapsedSec);
+			if (countdownSec <= 0) {
+				this.fadeIncident();
+			}
 		}
 		return {
 			bashExplorationCount: this.bashCount,
@@ -356,6 +390,8 @@ export class AutoSwitcherRunawayGuard {
 			circuitBreakerReason: this.tripReason,
 			incidentId: this.currentIncident?.id,
 			tokensSavedEstimate: this.tokensSaved,
+			countdownSec: this.isTripped ? countdownSec : undefined,
+			mitigatedCount: this.mitigatedCount,
 			blockedIntrospections: this.introspectionsBlocked,
 			blockedBashEvasions: this.bashEvasionsBlocked,
 			blockedSubagentPolls: this.pollsBlocked,

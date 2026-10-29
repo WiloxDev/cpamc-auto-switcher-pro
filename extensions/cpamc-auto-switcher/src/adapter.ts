@@ -686,6 +686,9 @@ export function formatSidebarQuotaCardLines(
 					: s.text("Misma cuenta fija");
 
 	// Cabecera unificada Cockpit
+	const countdown = typeof telemetry.countdownSec === "number" ? telemetry.countdownSec : 30;
+	const countdownTag = `(${countdown}s)`;
+
 	const headerTitle = isTripped
 		? s.error("🛡 [DISYUNTOR]")
 		: hasActiveInterception
@@ -693,7 +696,7 @@ export function formatSidebarQuotaCardLines(
 			: s.accent("🛡 [CUIDANDO EL CHAT]");
 
 	const headerTag = isTripped
-		? s.error("🛑 DISPARADO")
+		? s.error(`🛑 DISPARADO ${countdownTag}`)
 		: hasActiveInterception
 			? s.amber("⚡ Bucle Interceptado")
 			: isBusy
@@ -785,7 +788,7 @@ export function formatSidebarQuotaCardLines(
 
 		chatBlockLines = [
 			cockpitHeaderLine,
-			renderLine(s.muted("Disyuntor Anti-Bucle"), s.error("🛑 Disparado")),
+			renderLine(s.muted("Disyuntor Anti-Bucle"), s.error(`🔴 Disparado ${countdownTag}`)),
 			renderLine(s.muted("Causa"), s.error(reasonLabel)),
 			renderLine(s.muted("Tokens protegidos"), s.live(`~${savedK}k tokens`)),
 			renderLine(s.muted("Diagnóstico"), s.accent(linkText)),
@@ -806,17 +809,20 @@ export function formatSidebarQuotaCardLines(
 		// En la vista colapsada normal, CUIDANDO EL CHAT muestra:
 		// Fila 1: Cabecera con estado vivo
 		// Fila 2: Turno en vivo [barra]
-		// Fila 3: Anti-Sobrediseño (Activo KISS/YAGNI)
-		const antiOverContent = `${s.amber("⚠️")} ${s.cyan("Anti-Sobrediseño:")} ${s.idle("Activo (KISS/YAGNI)")}`;
-		const padAnti = Math.max(0, innerW - visibleLen(antiOverContent));
-		const antiOverRow = fitToWidth(
-			`${s.border("│")} ${antiOverContent}${" ".repeat(padAnti)} ${s.border("│")}`,
+		// Fila 3: Guardia Activa con Telemetría viva (Opción 3)
+		const mitigated = telemetry.mitigatedCount || 0;
+		const guardLabel = mitigated > 0
+			? `${s.accent("🛡️ Guardia:")} ${s.amber(`${mitigated} mitigado (~${Math.max(1, Math.round((telemetry.tokensSavedEstimate || 30000) / 1000))}k tk salvados)`)}`
+			: `${s.accent("🛡️ Guardia:")} ${s.idle("0 bucles · Código protegido")}`;
+		const padGuard = Math.max(0, innerW - visibleLen(guardLabel));
+		const guardRow = fitToWidth(
+			`${s.border("│")} ${guardLabel}${" ".repeat(padGuard)} ${s.border("│")}`,
 			safeW,
 		);
 		chatBlockLines = [
 			cockpitHeaderLine,
 			cockpitTurnLine,
-			antiOverRow,
+			guardRow,
 		];
 	}
 
@@ -1112,6 +1118,7 @@ export function setSessionAccordionState(expanded: boolean | AccordionMode): voi
  * Gestiona la inyección reactiva del TUI según el modo (`regular` vs `fullscreen`).
  */
 export class CpamcTuiAdapter {
+	public onOpenIncidentModal?: () => void;
 	private isFullscreen = false;
 	private isBusy = false;
 	private accordionMode: AccordionMode = "collapsed";
@@ -1521,8 +1528,9 @@ export class CpamcTuiAdapter {
 						}
 
 						let quotaHeight = 14; // Altura colapsada base por defecto
+						let sampleLines: string[] = [];
 						try {
-							const sampleLines = formatSidebarQuotaCardLines(
+							sampleLines = formatSidebarQuotaCardLines(
 								pair,
 								event.width || 48,
 								"\x1b[38;2;120;153;166m",
@@ -1546,6 +1554,19 @@ export class CpamcTuiAdapter {
 						// Si el evento trae coordenada horizontal X y excede el ancho útil del sidebar (ej. 48 cols), no capturar
 						if (typeof event.x === "number" && event.x >= (event.width || 48)) {
 							return originalRail.handleMouse?.(event);
+						}
+
+						// Si el click fue en la línea de Diagnóstico o /incident, abrir el Modal Autopsia
+						if (typeof event.y === "number") {
+							const diagIdx = sampleLines.findIndex(
+								(l: string) => l.includes("Diagnóstico") || l.includes("Ver detalles") || l.includes("/incident"),
+							);
+							if (diagIdx !== -1 && event.y === quotaStartY + diagIdx) {
+								if (typeof self.onOpenIncidentModal === "function") {
+									self.onOpenIncidentModal();
+									return { handled: true, render: true };
+								}
+							}
 						}
 
 						// 3. Click confirmado dentro de la Quota Card -> Alternar acordeón

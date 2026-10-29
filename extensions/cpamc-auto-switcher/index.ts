@@ -13,6 +13,7 @@ import { CpamcTuiAdapter } from "./src/adapter.js";
 import { querySwitcherAccounts, checkProactivePoolRebalance, applyOptimisticQuotaDecrement, getRotationPairForModelSync, updateContextUsage, recordContextCompression } from "./src/store.js";
 import { saveProjectModel, getProjectModel, clearProjectModel } from "./src/project-model-store.js";
 import { runawayGuard } from "./src/guards.js";
+import { showIncidentModal } from "./src/incident-modal.js";
 
 const execAsync = promisify(exec);
 const CURRENT_VERSION = "1.0.0";
@@ -331,6 +332,10 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 			adapter.setContext(ctx);
 		}
 
+		adapter.onOpenIncidentModal = () => {
+			void handleIncidentCommand(undefined, ctx);
+		};
+
 		// Siempre iniciar la tarjeta colapsada por defecto (en startup, /reload o /new)
 		adapter.resetToCollapsed();
 
@@ -511,6 +516,11 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 
 	pi.on("turn_start", async (_event: any, ctx: ExtensionContext) => {
 		try {
+			// Si el disyuntor estaba disparado en el turno anterior, la reanudación del turno
+			// por acción/orden del usuario lo despeja inmediatamente a Centinela Limpio (Dual-Trigger)
+			if (runawayGuard.getTelemetry().circuitBreakerTripped) {
+				runawayGuard.fadeIncident();
+			}
 			runawayGuard.resetTurn();
 			adapter?.onTurnStart();
 			await adapter?.update(true, ctx);
@@ -648,6 +658,23 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 			if (ctx?.hasUI) {
 				ctx.ui.notify?.("ℹ️ No hay incidentes activos de disyuntor en este momento.", "info");
 			}
+			return;
+		}
+
+		// Desplegar Modal TUI Nativo interactivo si hay UI disponible
+		if (ctx?.hasUI && typeof (ctx.ui as any)?.custom === "function") {
+			await showIncidentModal(ctx, {
+				telemetry: tele,
+				incident: tele.lastIncident,
+				onDismiss: async () => {
+					runawayGuard.dismissIncident();
+					await adapter?.update(false, ctx);
+					if (ctx?.hasUI) {
+						ctx.ui.notify?.("✅ Incidente descartado. Disyuntor rearmado.", "info");
+					}
+				},
+			});
+			await adapter?.update(false, ctx);
 			return;
 		}
 
