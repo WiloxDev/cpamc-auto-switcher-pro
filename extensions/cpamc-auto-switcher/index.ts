@@ -335,7 +335,6 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 		adapter.resetToCollapsed();
 
 		// Rebalanceo proactivo en fronteras de ciclo de vida (/new, /reload, inicio de sesión)
-		const reason = event?.reason;
 		if (reason === "compact" && ctx?.hasUI) {
 			ctx.ui.notify?.("✅ Contexto de sesión compactado y reanudado.", "info");
 		}
