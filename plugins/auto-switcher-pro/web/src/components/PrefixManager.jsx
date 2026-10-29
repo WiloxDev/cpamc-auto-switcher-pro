@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { saveAuthFilePrefixes, listPools } from '../api/managementClient';
+import React, { useState, useMemo, useEffect } from 'react';
+import { saveAuthFilePrefixes, listPools, classifyAuthAccount } from '../api/managementClient';
 import '../PrefixManager.css';
 
 /**
@@ -75,6 +75,15 @@ export default function PrefixManager({ nodes = [], onReloadRequested }) {
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [registeredPools, setRegisteredPools] = useState([]);
+
+  // Paginación adaptable
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25); // 15 | 25 | 50 | 0 (0 = Ver todo)
+
+  // Reseteo de página al buscar o cambiar filtro
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filterCategory, pageSize]);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,7 +216,24 @@ export default function PrefixManager({ nodes = [], onReloadRequested }) {
       }
       return true;
     });
-  }, [nodes, effectiveDrafts, searchQuery, filterCategory]);
+  }, [nodes, effectiveDrafts, searchQuery, filterCategory, registeredPools]);
+
+  // Paginación sobre los nodos filtrados
+  const totalPages = pageSize === 0 ? 1 : Math.max(1, Math.ceil(filteredNodes.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  // Normalizar página activa si el total de páginas disminuye
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  const paginatedNodes = useMemo(() => {
+    if (pageSize === 0) return filteredNodes;
+    const start = (safeCurrentPage - 1) * pageSize;
+    return filteredNodes.slice(start, start + pageSize);
+  }, [filteredNodes, safeCurrentPage, pageSize]);
 
   // Guardar cambio de una sola fila mediante PATCH
   const handleSaveRow = async (node) => {
@@ -393,7 +419,8 @@ export default function PrefixManager({ nodes = [], onReloadRequested }) {
 
       {/* 3. Tabla Maestra de Cuentas y Prefijos */}
       <div className="pm-table-card">
-        <table className="pm-table">
+        <div className="pm-table-responsive-wrapper">
+          <table className="pm-table">
           <thead>
             <tr>
               <th>PROVEEDOR</th>
@@ -406,9 +433,10 @@ export default function PrefixManager({ nodes = [], onReloadRequested }) {
             </tr>
           </thead>
           <tbody>
-            {filteredNodes.map((n) => {
+            {paginatedNodes.map((n) => {
               const fileName = n.data?.fileName || n.id;
-              const email = n.data?.email || n.data?.account || fileName;
+              const classification = classifyAuthAccount(n);
+              const email = classification.email || n.data?.email || n.data?.account || fileName;
               const prov = (n.data?.provider || n.data?.accountType || 'ANTIGRAVITY').toUpperCase();
               const currentVal = effectiveDrafts[n.id] || '';
               const origVal = (n.data?.prefix || '').trim();
@@ -426,27 +454,22 @@ export default function PrefixManager({ nodes = [], onReloadRequested }) {
               const roleInfo = classifyPrefixRole(currentVal, memberPool, fileName);
               const isSavingThis = savingRowId === n.id;
 
-              // Placeholder informativo inteligente para cuentas de pool sin prefijo en disco
-              const inputPlaceholder = memberPool && !currentVal
-                ? `🛡️ Protegido por ${memberPool.id}`
-                : 'e.g. agy, agy_1, codex';
-
               return (
                 <tr key={n.id} data-testid={`prefix-row-${n.id}`}>
                   <td>
-                    <span style={{
+                    <span className="pm-provider-badge" style={{
                       fontWeight: 800,
-                      fontSize: 10,
                       color: prov === 'CODEX' ? '#79c0ff' : prov === 'ANTIGRAVITY' ? '#4ade80' : '#c084fc',
+                      background: prov === 'CODEX' ? 'rgba(56, 189, 248, 0.12)' : prov === 'ANTIGRAVITY' ? 'rgba(74, 222, 128, 0.12)' : 'rgba(192, 132, 252, 0.12)',
                     }}>
                       {prov}
                     </span>
                   </td>
                   <td>
-                    <div className="pm-email-cell">{email}</div>
+                    <div className="pm-email-cell" title={email}>{email}</div>
                   </td>
                   <td>
-                    <div className="pm-filename-cell">{fileName}</div>
+                    <div className="pm-filename-cell" title={fileName}>{fileName}</div>
                   </td>
                   <td>
                     <span className={`pm-role-badge ${roleInfo.badgeClass}`}>
@@ -455,23 +478,23 @@ export default function PrefixManager({ nodes = [], onReloadRequested }) {
                   </td>
                   <td>
                     {memberPool ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#38bdf8' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#38bdf8' }}>
                           📦 {memberPool.id}
                         </span>
                         {isRAMLeader && (
-                          <span style={{ fontSize: 9, fontWeight: 700, color: '#fde047', background: 'rgba(234, 179, 8, 0.15)', padding: '1px 4px', borderRadius: 3, width: 'fit-content' }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: '#fde047', background: 'rgba(234, 179, 8, 0.15)', padding: '2px 6px', borderRadius: 4, width: 'fit-content' }}>
                             👑 Activo en RAM
                           </span>
                         )}
                         {assignedModel && (
-                          <span style={{ fontSize: 9, fontWeight: 600, color: '#a78bfa', background: 'rgba(167, 139, 250, 0.12)', padding: '1px 5px', borderRadius: 3, width: 'fit-content', border: '1px solid rgba(167, 139, 250, 0.25)' }}>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: '#a78bfa', background: 'rgba(167, 139, 250, 0.12)', padding: '2px 6px', borderRadius: 4, width: 'fit-content', border: '1px solid rgba(167, 139, 250, 0.25)' }}>
                             🎯 {assignedModel}
                           </span>
                         )}
                       </div>
                     ) : (
-                      <span style={{ fontSize: 11, color: '#64748b' }}>—</span>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>—</span>
                     )}
                   </td>
                   <td>
@@ -481,33 +504,33 @@ export default function PrefixManager({ nodes = [], onReloadRequested }) {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{
                               fontFamily: 'ui-monospace, monospace',
-                              fontSize: 12,
+                              fontSize: 12.5,
                               fontWeight: 700,
                               color: '#38bdf8',
                               background: 'rgba(56, 189, 248, 0.15)',
-                              padding: '3px 8px',
-                              borderRadius: 4,
+                              padding: '4px 9px',
+                              borderRadius: 5,
                               border: '1px solid rgba(56, 189, 248, 0.35)',
                             }}>
                               🏷️ {currentVal || memberPool.base_prefix}
                             </span>
-                            <span style={{ fontSize: 10, color: '#94a3b8' }}>Ruta activa</span>
+                            <span style={{ fontSize: 11, color: '#94a3b8' }}>Ruta activa</span>
                           </div>
                         ) : (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{
                               fontFamily: 'ui-monospace, monospace',
-                              fontSize: 12,
+                              fontSize: 12.5,
                               fontWeight: 600,
                               color: '#cbd5e1',
                               background: 'rgba(51, 65, 85, 0.4)',
-                              padding: '3px 8px',
-                              borderRadius: 4,
+                              padding: '4px 9px',
+                              borderRadius: 5,
                               border: '1px solid rgba(71, 85, 105, 0.5)',
                             }}>
                               🔒 {memberPool.base_prefix}_{roleInfo.label.match(/#(\d+)/)?.[1] || '1'} (Virtual)
                             </span>
-                            <span style={{ fontSize: 10, color: '#64748b' }}>Failover en RAM</span>
+                            <span style={{ fontSize: 11, color: '#64748b' }}>Failover en RAM</span>
                           </div>
                         )}
                       </div>
@@ -533,16 +556,16 @@ export default function PrefixManager({ nodes = [], onReloadRequested }) {
                     {memberPool ? (
                       <span
                         style={{
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: 700,
                           color: '#34d399',
                           background: 'rgba(16, 185, 129, 0.15)',
-                          padding: '4px 10px',
+                          padding: '5px 12px',
                           borderRadius: 6,
                           border: '1px solid rgba(16, 185, 129, 0.3)',
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: 4,
+                          gap: 5,
                           whiteSpace: 'nowrap',
                         }}
                         title="Gestión automatizada por Auto Switcher Pro. No requiere ni admite edición manual."
@@ -566,23 +589,90 @@ export default function PrefixManager({ nodes = [], onReloadRequested }) {
             })}
             {filteredNodes.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
                   No se encontraron cuentas que coincidan con el filtro seleccionado.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
-      {/* 4. Barra Inferior de Guardado en Lote */}
+      {/* 4. Barra Inferior de Guardado y Paginación */}
       <div className="pm-footer-bar">
         <div className="pm-footer-stats">
           <span>Total Cuentas: <strong>{nodes.length}</strong></span>
-          <span style={{ margin: '0 8px' }}>•</span>
-          <span>Visibles: <strong>{filteredNodes.length}</strong></span>
-          <span style={{ margin: '0 8px' }}>•</span>
+          <span style={{ margin: '0 8px', color: '#475569' }}>•</span>
+          <span>Filtradas: <strong>{filteredNodes.length}</strong></span>
+          <span style={{ margin: '0 8px', color: '#475569' }}>•</span>
           <span>Modificadas: <strong style={{ color: dirtyNodes.length > 0 ? '#fde047' : '#94a3b8' }}>{dirtyNodes.length}</strong></span>
+        </div>
+
+        {/* Controles de Paginación */}
+        <div className="pm-pagination-controls" data-testid="pm-pagination-controls">
+          <div className="pm-page-size-wrap">
+            <span>Mostrar:</span>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="pm-page-size-select"
+              data-testid="pm-page-size-select"
+            >
+              <option value={15}>15 por pág</option>
+              <option value={25}>25 por pág</option>
+              <option value={50}>50 por pág</option>
+              <option value={0}>Ver todo ({filteredNodes.length})</option>
+            </select>
+          </div>
+
+          {pageSize > 0 && totalPages > 1 && (
+            <div className="pm-pagination-buttons">
+              <button
+                type="button"
+                className="pm-btn-page"
+                onClick={() => setCurrentPage(1)}
+                disabled={safeCurrentPage <= 1}
+                title="Primera página"
+                data-testid="pm-btn-first-page"
+              >
+                «
+              </button>
+              <button
+                type="button"
+                className="pm-btn-page"
+                onClick={() => setCurrentPage(Math.max(1, safeCurrentPage - 1))}
+                disabled={safeCurrentPage <= 1}
+                title="Página anterior"
+                data-testid="pm-btn-prev-page"
+              >
+                ‹
+              </button>
+              <span className="pm-page-indicator" data-testid="pm-page-indicator">
+                Pág <strong>{safeCurrentPage}</strong> de <strong>{totalPages}</strong>
+              </span>
+              <button
+                type="button"
+                className="pm-btn-page"
+                onClick={() => setCurrentPage(Math.min(totalPages, safeCurrentPage + 1))}
+                disabled={safeCurrentPage >= totalPages}
+                title="Página siguiente"
+                data-testid="pm-btn-next-page"
+              >
+                ›
+              </button>
+              <button
+                type="button"
+                className="pm-btn-page"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={safeCurrentPage >= totalPages}
+                title="Última página"
+                data-testid="pm-btn-last-page"
+              >
+                »
+              </button>
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -604,7 +694,7 @@ export default function PrefixManager({ nodes = [], onReloadRequested }) {
               type="button"
               onClick={onReloadRequested}
               className="btn btn-outline"
-              style={{ fontSize: 11, padding: '6px 12px' }}
+              style={{ fontSize: 12, padding: '7px 14px' }}
             >
               🔄 Recargar Cuentas
             </button>

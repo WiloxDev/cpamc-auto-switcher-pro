@@ -3,14 +3,19 @@
    Auto Switcher Pro · Estilos Dark Glassmorphism para Pantalla Completa
    ========================================================================== */
 
+/* ==========================================================================
+   PrefixManager.css · Gestor Integral de Prefijos y Cuentas (Crear Prefijos)
+   Auto Switcher Pro · Estilos Dark Glassmorphism para Pantalla Completa
+   ========================================================================== */
+
 .pm-container {
   display: flex;
   flex-direction: column;
   gap: 16px;
   width: 100%;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 16px 20px 48px;
+  max-width: 100%;
+  margin: 0;
+  padding: 16px 24px 48px;
   box-sizing: border-box;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: var(--text-primary, #f6f4f1);
@@ -34,16 +39,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   color: #fff;
   margin: 0;
 }
 
 .pm-hero-desc {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary, #c9c3bb);
-  margin: 3px 0 0;
+  margin: 4px 0 0;
 }
 
 .pm-guide-box {
@@ -51,7 +56,7 @@
   border: 1px dashed rgba(168, 85, 247, 0.35);
   border-radius: 10px;
   padding: 10px 16px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary, #c9c3bb);
   line-height: 1.5;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -82,9 +87,9 @@
 
 .pm-search-input-wrap {
   position: relative;
-  flex: 1;
+  flex: 1 1 320px;
   min-width: 260px;
-  max-width: 480px;
+  max-width: 540px;
 }
 
 .pm-search-icon {
@@ -92,19 +97,19 @@
   left: 12px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-tertiary, #9c958d);
 }
 
 .pm-search-input {
   width: 100%;
   box-sizing: border-box;
-  padding: 8px 12px 8px 34px;
+  padding: 9px 12px 9px 36px;
   background: #0b0f17;
   border: 1px solid var(--border-color, #3a3530);
   color: var(--text-primary, #f6f4f1);
-  border-radius: 6px;
-  font-size: 12px;
+  border-radius: 8px;
+  font-size: 13px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   outline: none;
   transition: border-color 0.15s ease;
@@ -123,10 +128,10 @@
 }
 
 .pm-filter-chip {
-  padding: 5px 12px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
+  padding: 6px 13px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   background: transparent;
   border: 1px solid var(--border-color, #3a3530);
@@ -152,82 +157,107 @@
   border: 1px solid #232936;
   border-radius: 12px;
   overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.pm-table-responsive-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .pm-table {
   width: 100%;
+  min-width: 980px;
   border-collapse: collapse;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .pm-table th {
-  padding: 12px 14px;
+  padding: 13px 16px;
   background: var(--bg-app, #151412);
   border-bottom: 1px solid #232936;
   color: var(--text-secondary, #c9c3bb);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 .pm-table td {
-  padding: 10px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 13px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   vertical-align: middle;
 }
 
 .pm-table tr:hover {
-  background: rgba(168, 85, 247, 0.05);
+  background: rgba(168, 85, 247, 0.04);
+}
+
+.pm-provider-badge {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .pm-email-cell {
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text-primary, #f6f4f1);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pm-filename-cell {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--text-tertiary, #9c958d);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pm-role-badge {
-  font-size: 10px;
-  font-weight: 800;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
 }
 
 .pm-role-leader {
-  background: rgba(234, 179, 8, 0.2);
-  color: #fde047;
+  background: rgba(234, 179, 8, 0.18);
+  color: #fef08a;
   border: 1px solid rgba(234, 179, 8, 0.4);
 }
 
 .pm-role-reserve {
-  background: rgba(56, 139, 253, 0.2);
-  color: #79c0ff;
-  border: 1px solid rgba(56, 139, 253, 0.4);
+  background: rgba(56, 139, 253, 0.15);
+  color: #93c5fd;
+  border: 1px solid rgba(56, 139, 253, 0.35);
 }
 
 .pm-role-free {
-  background: rgba(148, 163, 184, 0.15);
-  color: var(--text-secondary, #c9c3bb);
-  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-secondary, #cbd5e1);
+  border: 1px solid rgba(148, 163, 184, 0.25);
 }
 
 .pm-role-specialist {
-  background: rgba(168, 85, 247, 0.2);
-  color: #d8b4fe;
-  border: 1px solid rgba(168, 85, 247, 0.4);
+  background: rgba(168, 85, 247, 0.18);
+  color: #e9d5ff;
+  border: 1px solid rgba(168, 85, 247, 0.35);
 }
 
 /* Input de Prefijo */
@@ -238,14 +268,14 @@
 }
 
 .pm-prefix-input {
-  padding: 6px 10px;
+  padding: 7px 11px;
   background: #0b0f17;
   border: 1px solid var(--border-color, #3a3530);
   color: var(--text-primary, #f6f4f1);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 12.5px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-weight: 700;
+  font-weight: 600;
   outline: none;
   min-width: 140px;
   transition: all 0.15s ease;
@@ -267,9 +297,9 @@
 }
 
 .pm-btn-save-row {
-  padding: 5px 10px;
+  padding: 6px 12px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   background: #238636;
@@ -293,17 +323,96 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px 20px;
-  background: var(--bg-app, #151412);
+  background: #13171f;
   border: 1px solid #232936;
   border-radius: 12px;
-  font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
   color: var(--text-secondary, #c9c3bb);
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 14px;
+}
+
+.pm-footer-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12.5px;
 }
 
 .pm-footer-stats strong {
+  color: var(--text-primary, #f6f4f1);
+}
+
+/* Paginación */
+.pm-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pm-page-size-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #c9c3bb);
+}
+
+.pm-page-size-select {
+  padding: 5px 10px;
+  background: #0b0f17;
+  border: 1px solid #334155;
+  color: #f1f5f9;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+.pm-page-size-select:focus {
+  border-color: #a855f7;
+}
+
+.pm-pagination-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pm-btn-page {
+  padding: 5px 10px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #f1f5f9;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-width: 30px;
+  text-align: center;
+}
+
+.pm-btn-page:hover:not(:disabled) {
+  background: #334155;
+  border-color: #475569;
+}
+
+.pm-btn-page:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pm-page-indicator {
+  font-size: 12px;
+  color: var(--text-secondary, #c9c3bb);
+  margin: 0 4px;
+}
+
+.pm-page-indicator strong {
   color: var(--text-primary, #f6f4f1);
 }
 
@@ -316,7 +425,7 @@
   border: 1px solid rgba(46, 160, 67, 0.6);
   color: #fff;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 800;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -332,3 +441,111 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ==========================================================================
+   Responsive Breakpoints & Mobile Adaptability
+   ========================================================================== */
+
+@media (max-width: 1024px) {
+  .pm-container {
+    padding: 14px 16px 36px;
+    gap: 14px;
+  }
+
+  .pm-hero-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .pm-guide-box {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .pm-footer-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .pm-pagination-controls {
+    justify-content: space-between;
+    width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .pm-container {
+    padding: 12px 12px 32px;
+    gap: 12px;
+  }
+
+  .pm-toolbar {
+    padding: 12px 14px;
+  }
+
+  .pm-search-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .pm-search-input-wrap {
+    max-width: 100%;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .pm-filter-chips {
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .pm-filter-chip {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .pm-footer-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .pm-footer-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+
+  .pm-btn-batch-save {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .pm-hero-title {
+    font-size: 13px;
+  }
+
+  .pm-hero-desc {
+    font-size: 11px;
+  }
+
+  .pm-pagination-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pm-pagination-buttons {
+    justify-content: center;
+  }
+}
+
+

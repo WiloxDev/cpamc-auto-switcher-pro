@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import PrefixManager from './PrefixManager';
 import * as managementClient from '../api/managementClient';
 
@@ -243,5 +243,66 @@ describe('PrefixManager Component - Full Screen Prefix & Accounts Engine', () =>
 
     expect(screen.getByText('🎯 gemini-3.8-flash-high')).toBeTruthy();
     expect(screen.getByText('🎯 gemini-3.7-flash-high')).toBeTruthy();
+  });
+
+  it('keeps navigation and page state consistent when accounts shrink and grow', () => {
+    vi.spyOn(managementClient, 'listPools').mockResolvedValue({ ok: true, pools: [] });
+    const accounts = Array.from({ length: 125 }, (_, i) => ({
+      id: `account-${i}`,
+      data: { fileName: `account-${i}.json`, email: `user${i}@example.com`, prefix: `agy_${i}`, provider: 'antigravity' },
+    }));
+    const { rerender } = render(<PrefixManager nodes={accounts} />);
+    fireEvent.click(screen.getByTestId('pm-btn-last-page'));
+    expect(screen.getByTestId('pm-page-indicator').textContent).toContain('Pág 5 de 5');
+    act(() => {
+      rerender(<PrefixManager nodes={accounts.slice(0, 75)} />);
+    });
+    expect(screen.getByTestId('pm-page-indicator').textContent).toContain('Pág 3 de 3');
+    fireEvent.click(screen.getByTestId('pm-btn-prev-page'));
+    expect(screen.getByTestId('pm-page-indicator').textContent).toContain('Pág 2 de 3');
+    act(() => {
+      rerender(<PrefixManager nodes={accounts.slice(0, 10)} />);
+    });
+    act(() => {
+      rerender(<PrefixManager nodes={accounts} />);
+    });
+    expect(screen.getByTestId('pm-page-indicator').textContent).toContain('Pág 1 de 5');
+  });
+
+  it('supports pagination controls and showing all items at once', () => {
+    // Generar 35 cuentas mock para probar la paginación
+    const manyNodes = Array.from({ length: 35 }, (_, i) => ({
+      id: `acc_${i + 1}`,
+      data: {
+        fileName: `antigravity-account-${i + 1}.json`,
+        email: `user${i + 1}@gmail.com`,
+        prefix: `agy_${i + 1}`,
+        provider: 'antigravity',
+      },
+    }));
+
+    render(<PrefixManager nodes={manyNodes} />);
+
+    // Por defecto el pageSize es 25: deben haber 25 filas en pantalla
+    expect(screen.getByTestId('pm-page-indicator').textContent).toContain('Pág 1 de 2');
+    expect(screen.getByText('user1@gmail.com')).toBeTruthy();
+    expect(screen.getByText('user25@gmail.com')).toBeTruthy();
+    expect(screen.queryByText('user26@gmail.com')).toBeNull();
+
+    // Navegar a la página siguiente
+    fireEvent.click(screen.getByTestId('pm-btn-next-page'));
+    expect(screen.getByTestId('pm-page-indicator').textContent).toContain('Pág 2 de 2');
+    expect(screen.queryByText('user1@gmail.com')).toBeNull();
+    expect(screen.getByText('user26@gmail.com')).toBeTruthy();
+    expect(screen.getByText('user35@gmail.com')).toBeTruthy();
+
+    // Cambiar selector a "Ver todo"
+    const select = screen.getByTestId('pm-page-size-select');
+    fireEvent.change(select, { target: { value: '0' } });
+
+    // Ahora todas las 35 cuentas deben estar visibles
+    expect(screen.getByText('user1@gmail.com')).toBeTruthy();
+    expect(screen.getByText('user35@gmail.com')).toBeTruthy();
+    expect(screen.queryByTestId('pm-page-indicator')).toBeNull(); // Se oculta el paginador si es 1 página / ver todo
   });
 });
