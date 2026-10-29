@@ -632,7 +632,7 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 
 	it("renders unified sidebar card perfectly aligned to 48 columns matching reference screenshot", () => {
 		const lines = formatSidebarQuotaCardLines(mockPoolPair, 48);
-		assert.strictEqual(lines.length >= 20, true);
+		assert.strictEqual(lines.length >= 18, true);
 		lines.forEach((l: string, idx: number) => {
 			const len = visibleLen(l);
 			assert.strictEqual(len, 48, `Fila ${idx} debe tener exactamente 48 caracteres visibles (actual: ${len}): "${stripAnsi(l)}"`);

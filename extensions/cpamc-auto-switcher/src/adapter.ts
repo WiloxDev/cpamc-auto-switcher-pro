@@ -19,6 +19,20 @@ const PAUSE_COLOR = "\x1b[38;2;120;153;166m"; // Gris suave
 const LEADER_COLOR = "\x1b[1;38;2;92;184;199m"; // Cian suave negrita
 const NEXT_COLOR = "\x1b[1;38;2;222;116;155m"; // Rosa coral suave negrita
 const MUTED = "\x1b[38;2;120;153;166m";
+// Colores adicionales para enriquecimiento visual
+const SPECTRUM_GREEN = "\x1b[38;2;34;197;94m";     // #22c55e - Verde esmeralda
+const SPECTRUM_LIME = "\x1b[38;2;132;204;22m";    // #84cc16 - Verde lima
+const SPECTRUM_YELLOW = "\x1b[38;2;234;179;8m";   // #eab308 - Amarillo cálido
+const SPECTRUM_AMBER = "\x1b[38;2;245;158;11m";   // #f59e0b - Ámbar
+const SPECTRUM_ORANGE = "\x1b[38;2;249;115;22m";  // #f97316 - Naranja alerta
+const SPECTRUM_RED = "\x1b[38;2;239;68;68m";     // #ef4444 - Rojo alerta
+const SPECTRUM_DARK_RED = "\x1b[38;2;220;38;38m"; // #dc2626 - Rojo fuego
+const ACCENT_CYAN = "\x1b[38;2;56;189;248m";      // #38bdf8 - Cian cielo
+const ACCENT_PURPLE = "\x1b[38;2;168;85;247m";    // #a855f7 - Púrpura
+const ACCENT_GOLD = "\x1b[38;2;234;179;8m";       // #eab308 - Oro
+const TEXT_WHITE = "\x1b[38;2;248;250;252m";      // #f8fafc - Blanco brillante
+const TEXT_MUTED = "\x1b[38;2;148;163;184m";      // #94a3b8 - Gris pizarra
+const BORDER_DIM = "\x1b[38;2;70;85;100m";        // #465564 - Gris metálico carril
 
 const ANSI_REGEX = /\x1b\[[0-9;]*[a-zA-Z]/g;
 const OSC8_REGEX = /\x1b\]8;;[^\x1b]*\x1b\\/g;
@@ -206,6 +220,19 @@ interface ThemeStyler {
 	boldWhite(text: string): string;
 	easy(text: string): string;
 	slate(text: string): string;
+	spectrumGreen(text: string): string;
+	spectrumLime(text: string): string;
+	spectrumYellow(text: string): string;
+	spectrumAmber(text: string): string;
+	spectrumOrange(text: string): string;
+	spectrumRed(text: string): string;
+	spectrumDarkRed(text: string): string;
+	accentCyan(text: string): string;
+	accentPurple(text: string): string;
+	accentGold(text: string): string;
+	textWhite(text: string): string;
+	textMuted(text: string): string;
+	borderDim(text: string): string;
 	paintGauge(percentStr: string, cells?: number, isAmber?: boolean): string;
 }
 
@@ -257,6 +284,19 @@ function createThemeStyler(theme?: any, fallbackBorder = "\x1b[38;2;120;153;166m
 		boldWhite: (t) => `\x1b[1;38;2;248;250;252m${t}${RESET}`,
 		easy: (t) => `\x1b[1;38;2;34;197;94m${t}${RESET}`,
 		slate: (t) => `\x1b[38;2;148;163;184m${t}${RESET}`,
+		spectrumGreen: (t) => `${SPECTRUM_GREEN}${t}${RESET}`,
+		spectrumLime: (t) => `${SPECTRUM_LIME}${t}${RESET}`,
+		spectrumYellow: (t) => `${SPECTRUM_YELLOW}${t}${RESET}`,
+		spectrumAmber: (t) => `${SPECTRUM_AMBER}${t}${RESET}`,
+		spectrumOrange: (t) => `${SPECTRUM_ORANGE}${t}${RESET}`,
+		spectrumRed: (t) => `${SPECTRUM_RED}${t}${RESET}`,
+		spectrumDarkRed: (t) => `${SPECTRUM_DARK_RED}${t}${RESET}`,
+		accentCyan: (t) => `${ACCENT_CYAN}${t}${RESET}`,
+		accentPurple: (t) => `${ACCENT_PURPLE}${t}${RESET}`,
+		accentGold: (t) => `${ACCENT_GOLD}${t}${RESET}`,
+		textWhite: (t) => `${TEXT_WHITE}${t}${RESET}`,
+		textMuted: (t) => `${TEXT_MUTED}${t}${RESET}`,
+		borderDim: (t) => `${BORDER_DIM}${t}${RESET}`,
 		paintGauge: (percentStr: string, cells = 6, isAmber = false) => {
 			const num = Number.parseFloat(percentStr.replace("%", "").trim()) || 0;
 			const filled = Math.min(cells, Math.max(0, Math.round((num / 100) * cells)));
@@ -400,16 +440,18 @@ function centerAnsi(text: string, width: number): string {
 	return " ".repeat(leftPad) + text + " ".repeat(rightPad);
 }
 
-// Paleta de espectro de celdas idéntica a Context en la prompt bar (#4ADE80 -> #EF4444)
+// Paleta de espectro de celdas enriquecida (10 pasos) — transiciones suaves verde→lima→amarillo→ámbar→naranja→rojo
 const SPECTRUM_CELL_COLORS: readonly (readonly [number, number, number])[] = [
-	[74, 222, 128],  // 1: #4ADE80 Verde Esmeralda (0-12%)
-	[132, 204, 22],  // 2: #84CC16 Verde Lima (13-25%)
-	[163, 230, 53],  // 3: #A3E635 Lima Brillante (26-37%)
-	[234, 179, 8],   // 4: #EAB308 Amarillo Cálido (38-50%)
-	[245, 158, 11],  // 5: #F59E0B Ámbar / Oro (51-62%)
-	[249, 115, 22],  // 6: #F97316 Naranja Alerta (63-75%)
-	[239, 68, 68],   // 7: #EF4444 Rojo Alerta (76-87%)
-	[220, 38, 38],   // 8: #DC2626 Rojo Fuego Máximo (88-100%)
+	[34, 197, 94],   // 1: #22c55e - Verde esmeralda (0-10%)
+	[74, 222, 128],  // 2: #4ADE80 - Verde menta (11-20%)
+	[132, 204, 22],  // 3: #84CC16 - Verde lima (21-30%)
+	[163, 230, 53],  // 4: #A3E635 - Lima brillante (31-40%)
+	[234, 179, 8],   // 5: #EAB308 - Amarillo cálido (41-50%)
+	[245, 158, 11],  // 6: #F59E0B - Ámbar dorado (51-60%)
+	[249, 115, 22],  // 7: #F97316 - Naranja alerta (61-70%)
+	[239, 68, 68],   // 8: #EF4444 - Rojo alerta (71-80%)
+	[220, 38, 38],   // 9: #DC2626 - Rojo fuego (81-90%)
+	[185, 28, 28],   // 10: #B91C1C - Rojo oscuro crítico (91-100%)
 ];
 
 const EMPTY_CELL_COLOR: readonly [number, number, number] = [70, 85, 100]; // Gris metálico carril
@@ -446,6 +488,20 @@ function renderTimeGauge(pct: number, cells = 10): string {
 	return res;
 }
 
+function renderNeedleIndicator(pct: number, cells = 11): string {
+	const clamped = Math.max(0, Math.min(100, pct));
+	const pos = Math.round((clamped / 100) * (cells - 1));
+	let res = "";
+	for (let i = 0; i < cells; i++) {
+		if (i === pos) {
+			res += `[38;2;56;189;248m●[39m`;
+		} else {
+			res += ` `;
+		}
+	}
+	return res;
+}
+
 function renderRaceBox(
 	title: string,
 	pace: QuotaPaceInfo,
@@ -465,18 +521,18 @@ function renderRaceBox(
 	// Barras de 11 celdas para aprovechar el espacio ganado
 	const gaugeCells = 11;
 
-	// Línea 2: │ ⏱   [▱▱▱▱▱▱▱▱▱▱▱]  0%   ● Ritmo holgado │ (⏱ + 3 espacios = 4 cols, alineado con "Uso ")
+	// Línea 2: Tiempo transcurrido (outer ring)
 	const timeBar = renderTimeGauge(pace.timeElapsedPct, gaugeCells);
-	const timePctStr = `${Math.round(pace.timeElapsedPct)}%`.padStart(3, " ");
-	const leftTime = `${s.border("│")} ${s.cyan("⏱   ")}${timeBar} ${s.cyan(timePctStr)}`;
+	const timePctStr = `${Math.round(pace.timeElapsedPct)}%`.padStart(4, " ");
+	const leftTime = `${s.border("│")} ${s.accentCyan("⏱")} ${timeBar} ${s.cyan(timePctStr)}`;
 	const rightPill = `${pace.pillColor(pace.pillLabel)} ${s.border("│")}`;
 	const spTime = Math.max(1, boxW - visibleLen(leftTime) - visibleLen(rightPill));
 	const boxLine1 = `${leftTime}${" ".repeat(spTime)}${rightPill}`;
 
-	// Línea 3: │ Uso [▰▰▱▱▱▱▱▱▱▱▱] 15%        85% libre    │ (Uso + 1 espacio = 4 cols)
+	// Línea 3: Cuota consumida (inner ring) - espectral
 	const quotaBar = renderSpectralGauge(pace.consumedPct, gaugeCells);
-	const quotaPctStr = `${pace.consumedPct}%`.padStart(3, " ");
-	const leftQuota = `${s.border("│")} ${s.slate("Uso ")}${quotaBar} ${s.boldWhite(quotaPctStr)}`;
+	const quotaPctStr = `${pace.consumedPct}%`.padStart(4, " ");
+	const leftQuota = `${s.border("│")} ${s.slate("Uso")} ${quotaBar} ${s.boldWhite(quotaPctStr)}`;
 	const rightFree = `${s.slate(pace.remainingPct + "% libre")} ${s.border("│")}`;
 	const spQuota = Math.max(1, boxW - visibleLen(leftQuota) - visibleLen(rightFree));
 	const boxLine2 = `${leftQuota}${" ".repeat(spQuota)}${rightFree}`;
@@ -498,6 +554,40 @@ function renderRaceBox(
 	];
 }
 
+function renderWeeklyCompactPill(
+	pace: QuotaPaceInfo,
+	innerW: number,
+	safeW: number,
+	s: ThemeStyler,
+): string[] {
+	const boxW = Math.max(20, innerW);
+
+	// Línea 1: ╭─ SEMANAL ⏱ ▰▰▰▰▰▰▰▰▰▱▱ 85% Quedan 1d 1h ─╮
+	const leftTitle = `${s.border("╭─ ")}${s.accent("SEMANAL")} ${s.accentCyan("⏱")} `;
+	const remText = `Quedan ${pace.remainingFormatted}`;
+	const pctText = `${pace.consumedPct}%`;
+	const rightInfo = ` ${s.boldWhite(pctText)} ${s.boldWhite(remText)}`;
+
+	const avail = boxW - visibleLen(leftTitle) - visibleLen(rightInfo) - 3;
+	const gaugeCells = Math.min(11, Math.max(6, avail));
+	const quotaBar = renderSpectralGauge(pace.consumedPct, gaugeCells);
+	const dashesCount = Math.max(1, boxW - visibleLen(leftTitle) - visibleLen(quotaBar) - visibleLen(rightInfo) - 2);
+	const boxTop = `${leftTitle}${quotaBar}${rightInfo} ${s.border("─".repeat(dashesCount) + "╮")}`;
+
+	// Línea 2: ╰──────────────────────────────────────────╯
+	const boxBot = `${s.border("╰" + "─".repeat(boxW - 2) + "╯")}`;
+
+	const wrapInContainer = (content: string) => {
+		const pad = Math.max(0, innerW - visibleLen(content));
+		return fitToWidth(`${s.border("│")} ${content}${" ".repeat(pad)} ${s.border("│")}`, safeW);
+	};
+
+	return [
+		wrapInContainer(boxTop),
+		wrapInContainer(boxBot),
+	];
+}
+
 export function renderDualConcentricClocks(
 	acc: { consumed5h?: string; consumedWeekly?: string; reset5hInSec?: number; resetWeeklyInSec?: number },
 	s: ThemeStyler,
@@ -508,7 +598,7 @@ export function renderDualConcentricClocks(
 	const paceWk = calculateQuotaPace(acc.consumedWeekly || "0%", acc.resetWeeklyInSec, 10080, s);
 
 	const lines5h = renderRaceBox("5 HORAS", pace5h, innerW, safeW, s);
-	const linesWk = renderRaceBox("SEMANAL", paceWk, innerW, safeW, s);
+	const linesWk = renderWeeklyCompactPill(paceWk, innerW, safeW, s);
 
 	return [...lines5h, ...linesWk];
 }
@@ -646,8 +736,8 @@ export function formatSidebarQuotaCardLines(
 		maxFamilyW,
 	);
 	const titlePrefix = pair.isNativeReadOnly
-		? `${s.border("╭─ ")}${s.accent("⚡ CUENTA FIJA: ")}${s.text(familyDisplay)} ${s.border("─ ")}${stateTag} ${s.border("─")}`
-		: `${s.border("╭─ ")}${s.accent("⚡ POOL: ")}${s.text(familyDisplay)} ${s.border("─ ")}${stateTag} ${s.border("─")}`;
+		? `${s.border("╭─ ")}${s.accent("⚡ CUENTA FIJA: ")}${s.textWhite(familyDisplay)} ${s.border("─ ")}${stateTag} ${s.border("─")}`
+		: `${s.border("╭─ ")}${s.accent("⚡ POOL: ")}${s.textWhite(familyDisplay)} ${s.border("─ ")}${stateTag} ${s.border("─")}`;
 	const prefixLen = visibleLen(titlePrefix);
 	const titleRules = Math.max(1, safeW - prefixLen - 1);
 	const top = fitToWidth(`${titlePrefix}${s.border("─".repeat(titleRules) + "╮")}`, safeW);
@@ -690,10 +780,10 @@ export function formatSidebarQuotaCardLines(
 	const countdownTag = `(${countdown}s)`;
 
 	const headerTitle = isTripped
-		? s.error("🛡 [DISYUNTOR]")
+		? s.error("🛡[DISYUNTOR]")
 		: hasActiveInterception
-			? s.amber("🛡 [INTERCEPCIÓN]")
-			: s.accent("🛡 [CUIDANDO EL CHAT]");
+			? s.amber("🛡[INTERCEPCIÓN]")
+			: s.accent("🛡[CUIDANDO EL CHAT]");
 
 	const headerTag = isTripped
 		? s.error(`🛑 DISPARADO ${countdownTag}`)
@@ -812,8 +902,8 @@ export function formatSidebarQuotaCardLines(
 		// Fila 3: Guardia Activa con Telemetría viva (Opción 3)
 		const mitigated = telemetry.mitigatedCount || 0;
 		const guardLabel = mitigated > 0
-			? `${s.accent("🛡️ Guardia:")} ${s.amber(`${mitigated} mitigado (~${Math.max(1, Math.round((telemetry.tokensSavedEstimate || 30000) / 1000))}k tk salvados)`)}`
-			: `${s.accent("🛡️ Guardia:")} ${s.idle("0 bucles · Código protegido")}`;
+			? `${s.accent("🛡 Guardia:")} ${s.amber(`${mitigated} mitigado (~${Math.max(1, Math.round((telemetry.tokensSavedEstimate || 30000) / 1000))}k tk salvados)`)}`
+			: `${s.accent("🛡 Guardia:")} ${s.idle("0 bucles · Código protegido")}`;
 		const padGuard = Math.max(0, innerW - visibleLen(guardLabel));
 		const guardRow = fitToWidth(
 			`${s.border("│")} ${guardLabel}${" ".repeat(padGuard)} ${s.border("│")}`,
@@ -845,25 +935,21 @@ export function formatSidebarQuotaCardLines(
 		const spPeriod = Math.max(1, innerW - visibleLen(linePeriodLeft) - visibleLen(linePeriodRight));
 		const headerRow1 = fitToWidth(`${s.border("│")} ${linePeriodLeft}${" ".repeat(spPeriod)}${linePeriodRight} ${s.border("│")}`, safeW);
 
-		// Fila 2: Modelo o Proveedor (evitando duplicidad exacta si ya figura en el título)
-		const headerRow2 = pair.isNativeReadOnly
-			? renderLine(s.muted("Proveedor"), s.text(pair.familyName || pair.active.provider || "Directo"))
-			: renderLine(s.muted("Modelo"), s.text(pair.poolKey));
-
-		// Fila 3: Cuentas: 2 · listas / Cuenta fija     Enfoque: Cuenta fija
-		const line2Left = pair.isNativeReadOnly
-			? `${s.muted("Cuenta:")} ${s.text(truncateWithAnsi(pair.active.prefix || pair.active.accountId, Math.max(8, innerW - 25)))}`
-			: `${s.muted("Cuentas:")} ${s.text(String(pair.totalAccounts))} ${s.slate("· listas")}`;
-		const compactApproach = approachVal
-			.replace("Misma cuenta fija", "Cuenta fija")
-			.replace("🛑 Bucle Interceptado", "🛑 Bucle");
-		const maxApproachW = Math.max(8, innerW - visibleLen(line2Left) - 10);
-		const approachDisplay = truncateWithAnsi(compactApproach, maxApproachW);
-		const line2Right = pair.isNativeReadOnly
-			? `${s.muted("Riesgo:")} ${s.amber("Sin failover")}`
-			: `${s.muted("Enfoque:")} ${s.text(approachDisplay)}`;
-		const spL2 = Math.max(1, innerW - visibleLen(line2Left) - visibleLen(line2Right));
-		const headerRow3 = fitToWidth(`${s.border("│")} ${line2Left}${" ".repeat(spL2)}${line2Right} ${s.border("│")}`, safeW);
+		// Fila 2: Modelo + Cuentas (o Proveedor + Riesgo en Standalone) unificado como en la captura de referencia
+		let headerRow2: string;
+		if (pair.isNativeReadOnly) {
+			const leftStand = `${s.muted("Proveedor:")} ${s.text(pair.familyName || pair.active.provider || "Directo")}`;
+			const rightStand = `${s.muted("Riesgo:")} ${s.amber("Sin failover")}`;
+			const spStand = Math.max(1, innerW - visibleLen(leftStand) - visibleLen(rightStand));
+			headerRow2 = fitToWidth(`${s.border("│")} ${leftStand}${" ".repeat(spStand)}${rightStand} ${s.border("│")}`, safeW);
+		} else {
+			const leftPool = `${s.muted("Modelo")} ${s.text(pair.poolKey)}`;
+			const rightPool = hasActiveInterception
+				? `${s.amber("Frenando bucles")}`
+				: `${s.muted("Cuentas:")} ${s.text(String(pair.totalAccounts))} ${s.slate("· listas")}`;
+			const spPool = Math.max(1, innerW - visibleLen(leftPool) - visibleLen(rightPool));
+			headerRow2 = fitToWidth(`${s.border("│")} ${leftPool}${" ".repeat(spPool)}${rightPool} ${s.border("│")}`, safeW);
+		}
 
 		// Quick-Rescue Banner proactivo ante fatiga crítica en cuentas Standalone
 		// Si la cuenta fija tiene consumo de 5h >= 85% o reset5hInSec bajo,
@@ -936,13 +1022,6 @@ export function formatSidebarQuotaCardLines(
 		leaderInfoLines.push(leadLine);
 
 		if (!pair.isNativeReadOnly) {
-			const prevLeadDur = lifecycle?.prev_leader_dur ?? "24h 01m";
-			const avgLeadDur = lifecycle?.avg_leader_dur ?? "28m";
-			const row2Left = `${s.muted("Líder anterior:")} ${s.text(prevLeadDur)}`;
-			const row2Right = `${s.muted("Promedio/cta:")} ${s.text(avgLeadDur)}`;
-			const spR2 = Math.max(1, innerW - visibleLen(row2Left) - visibleLen(row2Right));
-			leaderInfoLines.push(fitToWidth(`${s.border("│")} ${row2Left}${" ".repeat(spR2)}${row2Right} ${s.border("│")}`, safeW));
-
 			if (pair.next) {
 				const nextAvailPct = pair.next.minAvailable || "21%";
 				const candConsumedPct = pair.next.consumed5h ? parseInt(pair.next.consumed5h.replace("%", "").trim(), 10) : 21;
@@ -1001,7 +1080,6 @@ export function formatSidebarQuotaCardLines(
 				top,
 				headerRow1,
 				headerRow2,
-				headerRow3,
 				divider,
 				...renderDualConcentricClocks(pair.active, s, innerW, safeW),
 				...leaderInfoLines,
@@ -1070,7 +1148,6 @@ export function formatSidebarQuotaCardLines(
 			top,
 			headerRow1,
 			headerRow2,
-			headerRow3,
 			divider,
 			...renderDualConcentricClocks(pair.active, s, innerW, safeW),
 			...leaderInfoLines,

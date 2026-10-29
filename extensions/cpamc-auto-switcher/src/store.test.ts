@@ -66,7 +66,7 @@ describe("Standalone Accounts Quota Card & Model Resolution", () => {
 		const lines = formatSidebarQuotaCardLines(pair, 48);
 		const text = lines.map((l: string) => stripAnsi(l)).join("\n");
 		assert.match(text, /CUENTA FIJA/);
-		assert.match(text, /65%/);
+		assert.match(text, /35%/);
 		lines.forEach((l: string) => {
 			assert.strictEqual(visibleLen(l), 48);
 		});
@@ -97,7 +97,7 @@ describe("Standalone Accounts Quota Card & Model Resolution", () => {
 		const lines = formatSidebarQuotaCardLines(pair, 48);
 		const text = lines.map((l: string) => stripAnsi(l)).join("\n");
 		assert.match(text, /CUENTA FIJA: mi_cuenta/);
-		assert.match(text, /75%/);
+		assert.match(text, /25%/);
 		lines.forEach((l: string) => {
 			assert.strictEqual(visibleLen(l), 48);
 		});
