@@ -481,6 +481,21 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 		assert.equal(pace.remainingFormatted, "5h 0m");
 	});
 
+	it("satisfies Standalone Flat Quota: remainingSec=0 with low consumption shows Directa and no false 0m", () => {
+		const dummyStyler: any = {
+			easy: (t: string) => t,
+			amber: (t: string) => t,
+			error: (t: string) => t,
+		};
+		const pace = calculateQuotaPace("5%", 0, 300, dummyStyler);
+		assert.equal(pace.state, "easy");
+		assert.match(pace.pillLabel, /Ritmo holgado/);
+		assert.equal(pace.consumedPct, 5);
+		assert.equal(pace.remainingPct, 95);
+		assert.equal(pace.remainingFormatted, "Directa");
+		assert.equal(pace.timeElapsedPct, 0, "No debe marcar 100% transcurrido");
+	});
+
 	it("renders unified sidebar card for native standalone model collapsed by default with CUIDANDO EL CHAT and no rotations", () => {
 		const lines = formatSidebarQuotaCardLines(mockNativePair, 48, undefined, undefined, false, undefined, undefined, false);
 		const text = lines.map((l: string) => stripAnsi(l)).join("\n");

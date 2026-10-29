@@ -305,10 +305,19 @@ export function calculateQuotaPace(
 	const totalSec = totalMinutes * 60;
 	const isWeekly = totalMinutes > 300;
 
+	// Detección de cuentas sin ventana temporal activa:
+	// Si remainingSec === 0 pero la cuota consumida es pequeña (<95%), significa que
+	// el proveedor no computa ventana temporal por segundo o es cuota plana/directa.
+	const isUntimedOrFlat = remainingSec === 0 && consumedPct < 95;
+
 	let timeElapsedPct = 0;
 	let remSec = remainingSec;
 
-	if (typeof remainingSec === "number" && remainingSec >= 0) {
+	if (isUntimedOrFlat) {
+		// En cuentas directas / sin ventana temporal, no se muestra reloj en 0m ni 100% transcurrido
+		timeElapsedPct = 0;
+		remSec = undefined;
+	} else if (typeof remainingSec === "number" && remainingSec >= 0) {
 		const elapsed = Math.max(0, Math.min(totalSec, totalSec - remainingSec));
 		timeElapsedPct = (elapsed / totalSec) * 100;
 	} else {
@@ -317,7 +326,9 @@ export function calculateQuotaPace(
 	}
 
 	let remainingFormatted = "—";
-	if (typeof remSec === "number" && remSec >= 0) {
+	if (isUntimedOrFlat) {
+		remainingFormatted = "Directa";
+	} else if (typeof remSec === "number" && remSec >= 0) {
 		const mins = Math.max(0, Math.round(remSec / 60));
 		const days = Math.floor(mins / 1440);
 		const hours = Math.floor((mins % 1440) / 60);

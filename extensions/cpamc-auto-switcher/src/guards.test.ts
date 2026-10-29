@@ -238,7 +238,10 @@ describe("AutoSwitcherRunawayGuard - Anti-Bucle y Protección de Contexto", () =
 	});
 
 	it("9. Persiste el incidente en /dev/shm y permite recuperarlo o descartarlo", () => {
+		const testCwd = "/tmp/test-project-alpha";
+		const testSession = "sess-12345";
 		const guard1 = new AutoSwitcherRunawayGuard();
+		guard1.setScope(testCwd, testSession);
 		guard1.dismissIncident();
 
 		// Forzar disparo por comando prohibido
@@ -249,12 +252,20 @@ describe("AutoSwitcherRunawayGuard - Anti-Bucle y Protección de Contexto", () =
 		assert.equal(tele1.circuitBreakerTripped, true);
 		assert.ok(tele1.incidentId);
 
-		// Crear una instancia nueva simulando reinicio de pane / sesión
+		// Crear una instancia nueva simulando reinicio de pane en la misma sesión/proyecto
 		const guard2 = new AutoSwitcherRunawayGuard();
+		guard2.setScope(testCwd, testSession);
 		const tele2 = guard2.getTelemetry();
 		assert.equal(tele2.circuitBreakerTripped, true);
 		assert.equal(tele2.incidentId, tele1.incidentId);
 		assert.equal(tele2.circuitBreakerReason, "PROHIBITED_COMMAND");
+
+		// Aislamiento: otro proyecto o sesión limpia NO hereda el disyuntor
+		const guardOther = new AutoSwitcherRunawayGuard();
+		guardOther.setScope("/tmp/test-project-beta", "sess-clean");
+		const teleOther = guardOther.getTelemetry();
+		assert.equal(teleOther.circuitBreakerTripped, false);
+		assert.equal(teleOther.incidentId, undefined);
 
 		// Descartar deliberadamente
 		guard2.dismissIncident();

@@ -315,6 +315,16 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 	pi.on("session_start", async (event: any, ctx: ExtensionContext) => {
 		clearTimer();
 
+		// Asignar el ámbito de proyecto y sesión al guard
+		const sessionId = (ctx as any)?.sessionId || (ctx as any)?.sessionManager?.sessionId;
+		runawayGuard.setScope(ctx?.cwd, sessionId);
+
+		const reason = event?.reason;
+		// Si es una sesión nueva (/new) o cold startup, rearmar el disyuntor limpio para no arrastrar fantasmas
+		if (reason === "new" || reason === "startup") {
+			runawayGuard.resetSession();
+		}
+
 		if (!adapter) {
 			adapter = new CpamcTuiAdapter(ctx);
 		} else {
@@ -618,6 +628,7 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", async () => {
 		clearTimer();
 		runawayGuard.resetSession();
+		runawayGuard.dismissIncident();
 		adapter?.setContext(null);
 	});
 

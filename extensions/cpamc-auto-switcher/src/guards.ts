@@ -1,11 +1,26 @@
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 export const MAX_BASH_EXPLORATION_PER_TURN = 5;
 export const MAX_SUBAGENT_POLL_PER_TURN = 2;
 export const MAX_TOTAL_TOOLS_PER_TURN = 15;
 export const MAX_CYCLE_REPETITIONS = 3;
 export const CYCLE_WINDOW_SIZE = 6;
-export const SHM_INCIDENT_PATH = "/dev/shm/cpamc_last_incident.json";
+export const INCIDENT_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas máximo de validez
+
+/**
+ * Resuelve la ruta en memoria/shm del incidente para un proyecto y sesión específicos.
+ * Esto previene que un incidente en un proyecto contamine a otros proyectos o sesiones nuevas.
+ */
+export function resolveIncidentShmPath(cwd?: string, sessionId?: string): string {
+	const baseDir = existsSync("/dev/shm") ? "/dev/shm" : tmpdir();
+	const cwdNormalized = (cwd || process.cwd() || "").trim().toLowerCase();
+	const cwdHash = createHash("sha256").update(cwdNormalized).digest("hex").slice(0, 12);
+	const sessPart = sessionId ? `_${createHash("sha256").update(sessionId).digest("hex").slice(0, 8)}` : "";
+	return join(baseDir, `cpamc_incident_${cwdHash}${sessPart}.json`);
+}
 
 export interface IncidentRecord {
 	id: string;
@@ -81,6 +96,21 @@ export class AutoSwitcherRunawayGuard {
 	private lastReason?: string;
 	private lastTimestamp?: number;
 
+	private currentCwd?: string;
+	private currentSessionId?: string;
+
+	/**
+	 * Configura el alcance de la sesión y proyecto activo.
+	 */
+	setScope(cwd?: string, sessionId?: string): void {
+		this.currentCwd = cwd;
+		this.currentSessionId = sessionId;
+	}
+
+	private getShmPath(): string {
+		return resolveIncidentShmPath(this.currentCwd, this.currentSessionId);
+	}
+
 	private persistIncidentToShm(): void {
 		if (!this.currentIncident) return;
 		try {
@@ -89,17 +119,29 @@ export class AutoSwitcherRunawayGuard {
 				tripReason: this.tripReason,
 				tokensSaved: this.tokensSaved,
 				lastReason: this.lastReason,
+				timestamp: Date.now(),
+				cwd: this.currentCwd,
+				sessionId: this.currentSessionId,
 			};
-			writeFileSync(SHM_INCIDENT_PATH, JSON.stringify(payload), "utf-8");
+			writeFileSync(this.getShmPath(), JSON.stringify(payload), "utf-8");
 		} catch {}
 	}
 
 	loadIncidentFromShm(): boolean {
 		try {
-			if (existsSync(SHM_INCIDENT_PATH)) {
-				const content = readFileSync(SHM_INCIDENT_PATH, "utf-8");
+			const shmPath = this.getShmPath();
+			if (existsSync(shmPath)) {
+				const content = readFileSync(shmPath, "utf-8");
 				const data = JSON.parse(content);
 				if (data && data.incident && data.incident.id) {
+					// Validación de TTL: Si tiene más de 24 horas, expira automáticamente
+					const now = Date.now();
+					const recordTime = data.timestamp || data.incident.timestamp || 0;
+					if (now - recordTime > INCIDENT_TTL_MS) {
+						this.dismissIncident();
+						return false;
+					}
+
 					this.currentIncident = data.incident;
 					this.isTripped = true;
 					this.tripReason = data.tripReason || "CYCLE_DETECTED";
@@ -119,8 +161,9 @@ export class AutoSwitcherRunawayGuard {
 		this.tokensSaved = 0;
 		this.lastReason = undefined;
 		try {
-			if (existsSync(SHM_INCIDENT_PATH)) {
-				unlinkSync(SHM_INCIDENT_PATH);
+			const shmPath = this.getShmPath();
+			if (existsSync(shmPath)) {
+				unlinkSync(shmPath);
 			}
 		} catch {}
 	}
