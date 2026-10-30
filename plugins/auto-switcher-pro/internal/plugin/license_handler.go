@@ -90,7 +90,7 @@ func handleLicenseHTTP(req ManagementRequestPayload) ([]byte, error) {
 		}
 
 		status := license.GetLicenseStatus()
-		if status.Status != "trial" && status.Status != "active" {
+		if status.Status == "expired" && !status.CanRotate {
 			return jsonManagementResponse(http.StatusOK, map[string]interface{}{
 				"ok":          false,
 				"authorized":  false,

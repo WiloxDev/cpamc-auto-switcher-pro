@@ -149,8 +149,8 @@ export default function LicenseModal({ isOpen, onClose }) {
           <div className="license-title-row">
             <span className="license-badge-icon">🔐</span>
             <div>
-              <h3 className="license-modal-title">Licencia & Activación de Auto Switcher Pro</h3>
-              <div className="license-modal-subtitle">1 Licencia = 1 Máquina Activa a la vez (Política Estricta)</div>
+              <h3 className="license-modal-title">Licencia Comunitaria 100% Libre & Gratuita</h3>
+              <div className="license-modal-subtitle">Auto Switcher Pro es software libre sostenido por la comunidad (Coffee-ware)</div>
             </div>
           </div>
           <button type="button" className="license-close-btn" onClick={onClose}>✕</button>
@@ -162,23 +162,29 @@ export default function LicenseModal({ isOpen, onClose }) {
           <div className="license-status-card">
             <div className="license-status-header">
               <span className="status-label">ESTADO ACTUAL:</span>
-              <span className={`status-pill pill-${status?.status || 'trial'}`}>
-                {status?.status === 'active' ? '⭐ PRO ACTIVADO' : status?.status === 'expired' ? '⚠️ EXPIRADO' : '⏳ DEMO (30 DÍAS)'}
+              <span className={`status-pill pill-${status?.status === 'expired' ? 'expired' : 'active'}`}>
+                {status?.status === 'expired'
+                  ? '⚠️ EXPIRADO'
+                  : status?.tier?.includes('COMMUNITY') || status?.tier?.includes('GRATUITO')
+                  ? '☕ COMUNIDAD (100% LIBRE)'
+                  : status?.status === 'active'
+                  ? '⭐ PRO ACTIVADO'
+                  : '⏳ DEMO (30 DÍAS)'}
               </span>
             </div>
 
             <div className="license-metrics-grid">
               <div className="license-metric-item">
                 <span className="metric-label">Días Restantes</span>
-                <span className="metric-val">{status?.days_remaining ?? '--'}</span>
+                <span className="metric-val">{status?.days_remaining != null && status.days_remaining > 365 ? '∞' : (status?.days_remaining ?? '--')}</span>
               </div>
               <div className="license-metric-item">
                 <span className="metric-label">Nivel de Cuenta</span>
-                <span className="metric-val">{status?.tier || 'PRO'}</span>
+                <span className="metric-val">{status?.tier || 'COMMUNITY (100% GRATUITO)'}</span>
               </div>
               <div className="license-metric-item">
                 <span className="metric-label">Vigencia</span>
-                <span className="metric-val" style={{ fontSize: 11 }}>{status?.expires_at || 'Periodo de Evaluación'}</span>
+                <span className="metric-val" style={{ fontSize: 11 }}>{status?.expires_at || 'De por vida (Coffee-ware)'}</span>
               </div>
             </div>
 
@@ -315,15 +321,15 @@ export default function LicenseModal({ isOpen, onClose }) {
             </div>
           )}
 
-          {/* Opciones de Pago */}
+          {/* Opciones de Apoyo Voluntario (Café / Donación) */}
           <div className="license-payment-info">
-            <h5 className="payment-title">💳 Medios de Pago Aceptados</h5>
+            <h5 className="payment-title">☕ Apoyo al Proyecto Libre (Invitar un Café)</h5>
             <div className="payment-badges">
               <span className="pay-badge pay-binance">🟡 Binance Pay (USDT / Crypto)</span>
               <span className="pay-badge pay-paypal">🔵 PayPal (USD / EUR)</span>
             </div>
             <p className="payment-note">
-              Coordina directamente con <strong>Wilox</strong> para la emisión instantánea de tu licencia personalizada.
+              Este proyecto es <strong>100% gratuito y sin bloqueos de rotación</strong>. Si te ahorra errores 429 y cuida tus tokens, cualquier aporte voluntario para un café ayuda a seguir manteniendo los parches al día.
             </p>
           </div>
         </div>

@@ -44,7 +44,7 @@ describe('LicenseModal Component', () => {
   it('renders correctly when open and loads status', async () => {
     render(<LicenseModal isOpen={true} onClose={vi.fn()} />);
 
-    expect(screen.getByText(/Licencia & Activación de Auto Switcher Pro/i)).toBeTruthy();
+    expect(screen.getByText(/Licencia Comunitaria 100% Libre & Gratuita/i)).toBeTruthy();
 
     await waitFor(() => {
       expect(screen.getByText('CPA-1111-2222-3333')).toBeTruthy();

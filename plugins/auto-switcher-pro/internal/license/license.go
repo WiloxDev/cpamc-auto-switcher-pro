@@ -518,36 +518,24 @@ func ComputeStatusForClaims(claims *LicenseClaims, verifyErr error, currentMachi
 		}
 	}
 
-	// 2. Evaluar Trial de 30 días
+	// 2. Modelo 100% Gratuito y Libre (Community / Coffee-ware)
+	// El software no bloquea rotaciones ni expira por tiempo de uso:
+	// se sostiene mediante aportes voluntarios (invitar un café).
 	diff := trialEnd - now
 	daysLeft := int(diff / 86400)
 	if daysLeft < 0 {
 		daysLeft = 0
 	}
 
-	if diff > 0 {
-		return &StatusReport{
-			MachineID:      currentMachine,
-			Status:         StatusTrial,
-			DaysRemaining:  daysLeft,
-			TrialTotalDays: TrialDurationDays,
-			Tier:           "DEMO (30 Días)",
-			ExpiresAt:      time.Unix(trialEnd, 0).Format("2006-01-02"),
-			IsPro:          false,
-			CanRotate:      true,
-		}
-	}
-
-	// 3. Trial expirado
 	return &StatusReport{
 		MachineID:      currentMachine,
-		Status:         StatusExpired,
-		DaysRemaining:  0,
+		Status:         StatusActive,
+		DaysRemaining:  9999,
 		TrialTotalDays: TrialDurationDays,
-		Tier:           "EXPIRADO",
-		ExpiresAt:      time.Unix(trialEnd, 0).Format("2006-01-02"),
-		IsPro:          false,
-		CanRotate:      false,
+		Tier:           "COMMUNITY (100% GRATUITO)",
+		ExpiresAt:      "De por vida (Coffee-ware)",
+		IsPro:          true,
+		CanRotate:      true,
 	}
 }
 
