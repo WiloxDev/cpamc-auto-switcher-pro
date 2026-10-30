@@ -50,7 +50,7 @@ describe("Doctor Diagnostic Engine", () => {
 		const formatted = formatDoctorOutput(report);
 		assert.match(formatted, /DIAGNÓSTICO INTEGRAL/);
 		assert.match(formatted, /\[✓\].*Servidor CPAMC/);
-		assert.match(formatted, /✔ Los 4 componentes convergen en perfecta armonía/);
+		assert.match(formatted, /✔ Componentes verificados y listos para operar/);
 	});
 
 	it("formats anomalous report and flags auto-repair prompt", () => {

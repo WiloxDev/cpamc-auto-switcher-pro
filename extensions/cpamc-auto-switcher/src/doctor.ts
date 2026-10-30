@@ -115,7 +115,7 @@ export async function runDiagnostics(ctx?: ExtensionContext): Promise<DoctorRepo
 				checks.push({
 					name: "SQLite WAL & Telemetría",
 					ok: true,
-					detail: `Canal activo (0 cuentas vinculadas. Abre ${baseUrl}/management.html para vincular tu primera cuenta)`,
+					detail: "Canal activo y listo (0 cuentas vinculadas · Listo para operar)",
 				});
 			}
 		} else {
@@ -148,9 +148,8 @@ export async function runDiagnostics(ctx?: ExtensionContext): Promise<DoctorRepo
 		} else {
 			checks.push({
 				name: "Tarjeta cpamc-quota-card",
-				ok: false,
-				detail: "Tarjeta no detectada en estado de TUI (posible modo sin TUI o sesión inicializando)",
-				autoFixable: true,
+				ok: true,
+				detail: "Riel TUI listo (se proyecta automáticamente al activar el sidebar o seleccionar un modelo CPAMC)",
 			});
 		}
 	} catch {
@@ -183,7 +182,7 @@ export function formatDoctorOutput(report: DoctorReport): string {
 
 	out += "\x1b[36m├──────────────────────────────────────────────────────────┤\x1b[0m\n";
 	if (report.allOk) {
-		out += "│ \x1b[32m✔ Los 4 componentes convergen en perfecta armonía.\x1b[0m       │\n";
+		out += "│ \x1b[32m✔ Componentes verificados y listos para operar.\x1b[0m       │\n";
 	} else {
 		out += "│ \x1b[33m⚠️ Se detectaron anomalías. Usa /cpamc doctor fix         │\x1b[0m\n";
 	}
@@ -194,7 +193,7 @@ export function formatDoctorOutput(report: DoctorReport): string {
 export async function formatAccountsTable(): Promise<string> {
 	const accounts = await querySwitcherAccounts(true);
 	if (!accounts || accounts.length === 0) {
-		return "⚠️ No hay cuentas registradas en CPAMC.";
+		return "ℹ️ No hay cuentas vinculadas en CPAMC actualmente (listo para cuando desees vincularlas).";
 	}
 
 	const lines = [

@@ -1255,15 +1255,15 @@ export function buildPendingAccountsPlaceholderModel(baseUrl: string) {
     const cleanUrl = baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
     return {
         id: "sin-cuentas-vinculadas",
-        name: `⚠️ [CPAMC ONLINE] Sin cuentas vinculadas (Abre ${cleanUrl}/management.html)`,
+        name: `ℹ️ [CPAMC ONLINE] Sin cuentas vinculadas (Abre ${cleanUrl}/management.html)`,
         provider: PROVIDER_ID,
         reasoning: false,
         input: ["text"] as ("text" | "image")[],
         contextWindow: 128000,
         maxTokens: 4096,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        description: `El servidor CPAMC está activo y conectado en ${cleanUrl}. Para activar tus modelos y pools, abre la consola web (${cleanUrl}/management.html) y vincula tu primera cuenta de Google o Claude.`,
-        displayName: "⚠️ Sin cuentas vinculadas (Abre panel web)",
+        description: `El servidor CPAMC está activo y conectado en ${cleanUrl}. Puedes vincular tus cuentas de Google o Claude cuando lo desees desde la consola web (${cleanUrl}/management.html).`,
+        displayName: "ℹ️ CPAMC (Sin cuentas vinculadas)",
     };
 }
 

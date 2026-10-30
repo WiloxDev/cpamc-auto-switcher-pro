@@ -37,8 +37,8 @@ export function registerModelPicker(pi: any): void {
 
 			if (hasOnlyPlaceholder) {
 				context.ui?.notify(
-					"⚠️ CPAMC conectado pero sin cuentas vinculadas. Abre http://localhost:8317/management.html para activar tus modelos.",
-					"warning",
+					"ℹ️ CPAMC está conectado. Puedes vincular cuentas desde http://localhost:8317/management.html cuando desees usarlas.",
+					"info",
 				);
 				return;
 			}
