@@ -717,6 +717,54 @@ describe('GroupManager - family-aware pools, honest failures & isolated routes',
     expect(savedPool.policy.excluded_models).toContain('claude-sonnet-5-5-high');
   });
 
+  it('creates a Codex pool with its selected specialist model and never falls back to Gemini', async () => {
+    vi.spyOn(managementClient, 'saveAuthFilePrefixes').mockResolvedValue({
+      successful: [{ name: 'codex-lead.json', prefix: 'codex' }],
+      failed: [],
+    });
+    const savePoolSpy = vi.spyOn(managementClient, 'savePool').mockResolvedValue({
+      ok: true,
+      pool: { id: 'Pool-02-codex', base_prefix: 'codex' },
+      message: 'Pool codex saved',
+    });
+    vi.spyOn(managementClient, 'listModels').mockResolvedValue({
+      models: [
+        'gpt-5.4',
+        'gpt-4o',
+        'o3-mini',
+        'gemini-3.8-flash-high',
+      ],
+    });
+
+    const codexNodes = [
+      { id: 'c1', data: { fileName: 'codex-lead.json', email: 'cx1@test.com', prefix: '', provider: 'codex' } },
+      { id: 'c2', data: { fileName: 'codex-res.json', email: 'cx2@test.com', prefix: '', provider: 'codex' } },
+    ];
+
+    render(<GroupManager nodes={codexNodes} />);
+
+    fireEvent.click(screen.getByTestId('family-codex'));
+    fireEvent.change(screen.getByTestId('select-active-account'), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByTestId('reserve-item-c2'));
+
+    const selectSpec = screen.getByTestId('select-specialist-model');
+    fireEvent.change(selectSpec, { target: { value: 'gpt-5.4' } });
+
+    fireEvent.click(screen.getByTestId('btn-save-group'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/creado y guardado con éxito/i)).toBeTruthy();
+    });
+
+    expect(savePoolSpy).toHaveBeenCalledTimes(1);
+    const savedPool = savePoolSpy.mock.calls[0][0];
+    expect(savedPool.family).toBe('codex');
+    expect(savedPool.policy.target_models).toEqual(['gpt-5.4']);
+    expect(savedPool.member_models['codex-lead.json']).toBe('gpt-5.4');
+    expect(savedPool.member_models['codex-res.json']).toBe('gpt-5.4');
+    expect(savedPool.policy.target_models).not.toContain('gemini-3.8-flash-high');
+  });
+
   it('unifies capacity calculation combining free and available accounts with accurate group count', () => {
     const occupiedNodes = [
       { id: 'a1', data: { fileName: 'a1.json', email: 'a1@test.com', prefix: 'agy', provider: 'antigravity' } },

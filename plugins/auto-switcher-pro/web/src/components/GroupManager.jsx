@@ -1346,11 +1346,10 @@ function sortModelsByFamilyAndVersion(models, familyRole, isCodex, isGemini) {
           }
           return cur;
         };
-        // Filtrar modelos válidos para la familia
-        const isAntigravityModel = (id) => {
+        // Filtrar modelos válidos para la familia excluyendo identificadores de pools virtuales ('pool-...')
+        const isNotVirtualPoolModel = (id) => {
           const lower = (id || '').toLowerCase();
-          if (lower.startsWith('pool-') || lower.includes('pool-')) return false;
-          return lower.includes('gemini') || lower.includes('claude') || lower.includes('sonnet') || lower.includes('opus') || lower.includes('haiku');
+          return !lower.startsWith('pool-') && !lower.includes('pool-');
         };
 
         const targetSet = new Set();
@@ -1360,7 +1359,7 @@ function sortModelsByFamilyAndVersion(models, familyRole, isCodex, isGemini) {
         models
           .map(toBaseModelId)
           .filter(Boolean)
-          .filter(isAntigravityModel)
+          .filter(isNotVirtualPoolModel)
           .forEach((id) => {
             if (matchesFamilyModel(trimmedBase, id, excludeVersion55)) {
               familyMatchingModels.push(id);
@@ -1371,16 +1370,16 @@ function sortModelsByFamilyAndVersion(models, familyRole, isCodex, isGemini) {
         // Cada pool creado es estrictamente especialista de 1 solo modelo.
         // El modelo elegido queda como único target y el resto de la familia como opuesto/bloqueado.
         const effectiveSpecialist = selectedSpecialistModel ||
-          familyMatchingModels.find((m) => m.includes('3.8')) ||
-          familyMatchingModels[0] ||
-          '';
+          (trimmedBase.toLowerCase().startsWith('codex')
+            ? (familyMatchingModels.find((m) => m.includes('gpt-5.4') || m.includes('gpt-4o')) || familyMatchingModels[0] || '')
+            : (familyMatchingModels.find((m) => m.includes('3.8')) || familyMatchingModels[0] || ''));
 
         if (effectiveSpecialist) {
           targetSet.add(effectiveSpecialist);
           models
             .map(toBaseModelId)
             .filter(Boolean)
-            .filter(isAntigravityModel)
+            .filter(isNotVirtualPoolModel)
             .forEach((id) => {
               if (id !== effectiveSpecialist) {
                 oppositeSet.add(id);
@@ -1393,7 +1392,7 @@ function sortModelsByFamilyAndVersion(models, familyRole, isCodex, isGemini) {
 
         targetModels = [...targetSet];
         oppositeModels = [...oppositeSet];
-        allBaseModels = [...new Set(models.map(toBaseModelId).filter(Boolean).filter(isAntigravityModel))];
+        allBaseModels = [...new Set(models.map(toBaseModelId).filter(Boolean).filter(isNotVirtualPoolModel))];
       } catch {
         // Model listing is non-blocking
       }
@@ -1450,18 +1449,25 @@ function sortModelsByFamilyAndVersion(models, familyRole, isCodex, isGemini) {
         famSuffix = effectiveFamily.provider;
       }
       const canonicalPoolName = `Pool-${String(nextPoolIndex).padStart(2, '0')}-${famSuffix}`;
-      const chosenModel = targetModels[0] || 'gemini-3.8-flash-high';
+      let defaultFamilyModel = 'gemini-3.8-flash-high';
+      if (famSuffix === 'codex') {
+        defaultFamilyModel = 'gpt-5.4';
+      } else if (famSuffix === 'claude') {
+        defaultFamilyModel = 'claude-sonnet-4-6';
+      }
+      const chosenModel = targetModels[0] || selectedSpecialistModel || defaultFamilyModel;
       const memberModelsMap = { [leaderFileName]: chosenModel };
       reserveFileNames.forEach((rf) => {
         memberModelsMap[rf] = chosenModel;
       });
+      const resolvedFamilyKey = effectiveFamily?.key || (famSuffix === 'codex' ? 'codex' : famSuffix === 'claude' ? 'claude' : 'gemini_pure');
       const poolPayload = {
         id: canonicalPoolName,
         name: canonicalPoolName,
         display_name: canonicalPoolName,
         route_slug: canonicalPoolName,
         enabled: true,
-        family: effectiveFamily?.key || 'gemini_pure',
+        family: resolvedFamilyKey,
         base_prefix: trimmedBase,
         members: [leaderFileName, ...reserveFileNames],
         member_models: memberModelsMap,
@@ -1472,7 +1478,7 @@ function sortModelsByFamilyAndVersion(models, familyRole, isCodex, isGemini) {
         policy: {
           disable_isolation: false,
           exclude_55: Boolean(excludeVersion55),
-          target_models: targetModels,
+          target_models: targetModels.length > 0 ? targetModels : [chosenModel],
           excluded_models: oppositeModels,
         },
       };

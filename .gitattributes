@@ -23,3 +23,8 @@
 *.png binary
 *.jpg binary
 *.ico binary
+
+# Vendored / Compiled Assets (Excluded from GitHub Language Detection)
+plugins/auto-switcher-pro/internal/web/assets/** linguist-vendored
+plugins/auto-switcher-pro/web/dist/** linguist-vendored
+

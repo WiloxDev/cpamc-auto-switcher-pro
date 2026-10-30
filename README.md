@@ -2,7 +2,7 @@
 ### Failover Reactivo en <5ms, Balanceador Inteligente y Telemetría en Vivo para Agentes de Codificación
 
 [![Release](https://img.shields.io/badge/Release-v2.5.0-blue?style=flat-square)](https://github.com/WiloxDev/cpamc-auto-switcher-pro/releases)
-[![Tests Passing](https://img.shields.io/badge/Tests-89%2F89%20Passing%20(TS)%20%7C%20Go%20100%25-brightgreen?style=flat-square)](https://github.com/WiloxDev/cpamc-auto-switcher-pro)
+[![CI Tests](https://github.com/WiloxDev/cpamc-auto-switcher-pro/actions/workflows/ci.yml/badge.svg)](https://github.com/WiloxDev/cpamc-auto-switcher-pro/actions/workflows/ci.yml)
 [![Plataformas](https://img.shields.io/badge/Plataformas-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=flat-square)](#-instalación-rápida-60-segundos)
 [![Harnesses](https://img.shields.io/badge/Harness-Gentle--Shell%20%7C%20Wilox--Pi%20%7C%20Pi-purple?style=flat-square)](#-compatibilidad)
 
@@ -51,7 +51,45 @@ irm https://raw.githubusercontent.com/WiloxDev/cpamc-auto-switcher-pro/main/scri
 ./install.sh --plugin-only
 ```
 
-> **💡 Consejo Magic Pairing**: Si ya tienes encendido el panel web de CPAMC (`/management.html`), ve a la pestaña *Auto Switcher Pro* y haz clic en **"Generar comando de enlace"** para obtener tu línea de conexión personalizada en 1 clic.
+---
+
+### 🔍 Auditoría y Métodos de Instalación Segura
+
+Auto Switcher Pro es 100% auditable. Tienes total libertad para elegir el nivel de verificación antes de instalar:
+
+#### Opción A: Instalación Rápida
+Ejecuta el script directamente si confías en el repositorio:
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/WiloxDev/cpamc-auto-switcher-pro/main/install.sh | bash
+```
+
+#### Opción B: Inspección Previa Local (Recomendada para Auditoría)
+Clona el repositorio, revisa cada línea del script y ejecútalo localmente:
+```bash
+git clone https://github.com/WiloxDev/cpamc-auto-switcher-pro.git
+cd cpamc-auto-switcher-pro
+# Inspecciona el código
+less install.sh
+# Ejecuta cuando estés satisfecho
+./install.sh
+```
+
+#### Opción C: Compilación 100% Local desde Código Fuente (Sin Binarios Externos)
+Si no deseas descargar binarios `.so` precompilados de GitHub Releases, puedes compilar el motor Go/CGO directamente en tu máquina:
+```bash
+git clone https://github.com/WiloxDev/cpamc-auto-switcher-pro.git
+cd cpamc-auto-switcher-pro
+# Compilar binario CGO local (requiere Go y gcc)
+./scripts/build-plugin.sh amd64    # o arm64
+./install.sh --plugin-only
+```
+
+#### 🔒 Verificación Criptográfica SHA256
+Todos los binarios precompilados en [GitHub Releases](https://github.com/WiloxDev/cpamc-auto-switcher-pro/releases) incluyen sus respectivos hashes `.sha256`. Puedes verificar la integridad del binario antes de ejecutarlo:
+```bash
+sha256sum -c auto-switcher-pro-linux-amd64.so.sha256
+```
 
 ---
 
@@ -174,28 +212,6 @@ Auto Switcher Pro está concebido bajo estándares de ingeniería de mínima int
 ---
 
 <details>
-<summary>🤖 <b>Protocolo para Asistentes AI y Subagentes Autónomos</b> (Clic para expandir)</summary>
-
-Si estás actuando como asistente de IA (Gentle-Shell, Pi, Claude Code, Cursor, Copilot) guiando al usuario en este repositorio:
-
-1. **Objetivo de Ciclo Completo**: Tu labor es dejar el entorno 100% operativo, no devolver tablas de comandos pasivas para que el usuario las copie.
-2. **Pregunta Resolutiva (Si CPAMC no está corriendo)**:
-   > *"Veo que tu terminal está lista, pero aún no tienes un servidor CPAMC activo.*
-   > * * **[1] Local:** Descargo e inicio automáticamente CPAMC oficial con Auto Switcher Pro.*
-   > * * **[2] Remoto/LAN:** Conecto tu extensión a la IP de un servidor existente.*
-   > *¿Deseas la opción 1 o 2? Responde el número y yo me encargo de todo."*
-3. **Regla de Plataforma Estricta**:
-   - En Windows: Invoca **exclusivamente PowerShell** (`install-windows.ps1`), jamás sugieras comandos `bash`.
-   - En Linux / macOS: Ejecuta `./install.sh`.
-4. **Cierre de Ciclo**:
-   - Valida la salud con `/cpamc doctor`.
-   - Recuerda al usuario abrir `http://localhost:8317/management.html` para vincular sus primeras cuentas OAuth si aún no lo ha hecho.
-
-</details>
-
----
-
-<details>
 <summary>🧪 <b>Arquitectura Interna y Validación TDD</b> (Clic para expandir)</summary>
 
 ### Los 4 Pilares de Rotación
@@ -213,13 +229,22 @@ cd extensions/cpamc-auto-switcher && npm test
 go test ./...
 cd plugins/auto-switcher-pro && go test ./...
 ```
-*Suite con 89/89 pruebas unitarias TypeScript y suite completa de Go pasando en verde.*
+*Suite con 89/89 pruebas unitarias TypeScript y suite completa de Go pasando en verde en GitHub Actions.*
 
 </details>
 
 ---
 
-## 📄 Licencia
+## ⚖️ Uso Responsable y Transparencia (Disclaimer)
 
-Este software está protegido por acuerdos de licencia comercial y uso autorizado bajo el ecosistema WiloxDev / CPAMC.
-Para más información, consulta `plugins/auto-switcher-pro/internal/license/`.
+- **Propósito**: Auto Switcher Pro es una herramienta de productividad y balanceo de tráfico diseñada para entornos locales de desarrollo, permitiendo a desarrolladores e investigadores gestionar la cuota y resiliencia de sus **propias credenciales autorizadas**.
+- **Cumplimiento de Términos (ToS)**: La herramienta está pensada para evitar cortes abruptos durante flujos de codificación largos. No está destinada ni fomenta el abuso de cuotas gratuitas, la evasión de pagos ni la violación de las políticas de uso de los proveedores de modelos de lenguaje (LLMs). El usuario es responsable de operar sus cuentas de acuerdo con las directrices de cada servicio.
+- **Seguridad de Tokens**: Todas las credenciales permanecen en el almacenamiento nativo oficial de CPAMC (`~/.cli-proxy-api/`). El plugin jamás transmite ni expone claves a servidores externos no configurados explícitamente por el usuario.
+
+---
+
+## 📄 Licencia y Auditoría
+
+- **Código Fuente Abierto para Auditoría**: Todo el código fuente de la extensión (`extensions/cpamc-auto-switcher`), del plugin Go (`plugins/auto-switcher-pro`) y de la interfaz web React está disponible públicamente en este repositorio para ser auditado, bifurcado y compilado localmente.
+- **Licencia de Uso**: Gratuito para uso personal, desarrollo y evaluación. Para licencias empresariales o despliegues gestionados en servidores corporativos, consulta `plugins/auto-switcher-pro/internal/license/`.
+

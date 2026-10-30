@@ -941,6 +941,71 @@ func (r *PoolRegistry) pruneStaleAccountsLocked(authDir string) (bool, error) {
 	return changed, nil
 }
 
+// validatePoolModelCompatibility guarantees that a pool never stores or executes models
+// belonging to a foreign provider family (e.g. Gemini models in a Codex pool, or GPT models in a Gemini pool).
+func validatePoolModelCompatibility(pool *PoolDefinition) error {
+	if pool == nil {
+		return nil
+	}
+	famShort := familyCanonicalShortName(pool.Family, pool.BasePrefix)
+
+	checkModel := func(model string) error {
+		m := strings.ToLower(strings.TrimSpace(model))
+		if m == "" {
+			return nil
+		}
+		for {
+			idx := strings.Index(m, "/")
+			if idx >= 0 && idx < len(m)-1 {
+				m = m[idx+1:]
+			} else {
+				break
+			}
+		}
+
+		isGemini := strings.Contains(m, "gemini")
+		isClaude := strings.Contains(m, "claude") || strings.Contains(m, "sonnet") || strings.Contains(m, "opus") || strings.Contains(m, "haiku")
+		isCodex := strings.Contains(m, "codex") || strings.Contains(m, "astra") || strings.Contains(m, "sol") || strings.Contains(m, "terra") || strings.Contains(m, "luna") || strings.Contains(m, "chatgpt") || strings.HasPrefix(m, "gpt-") || strings.HasPrefix(m, "o1") || strings.HasPrefix(m, "o3") || strings.HasPrefix(m, "o4")
+
+		switch famShort {
+		case "codex":
+			if isGemini {
+				return fmt.Errorf("incompatible model %q: cannot use gemini models in a codex pool", model)
+			}
+			if isClaude {
+				return fmt.Errorf("incompatible model %q: cannot use claude models in a codex pool", model)
+			}
+		case "gemini":
+			if isCodex {
+				return fmt.Errorf("incompatible model %q: cannot use codex/gpt models in a gemini pool", model)
+			}
+			if isClaude {
+				return fmt.Errorf("incompatible model %q: cannot use claude models in a pure gemini pool", model)
+			}
+		case "claude":
+			if isGemini {
+				return fmt.Errorf("incompatible model %q: cannot use gemini models in a claude pool", model)
+			}
+			if isCodex {
+				return fmt.Errorf("incompatible model %q: cannot use codex/gpt models in a claude pool", model)
+			}
+		}
+		return nil
+	}
+
+	for _, tm := range pool.Policy.TargetModels {
+		if err := checkModel(tm); err != nil {
+			return err
+		}
+	}
+	for _, mm := range pool.MemberModels {
+		if err := checkModel(mm); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SavePool stores or updates a pool definition and commits atomically to disk.
 func (r *PoolRegistry) SavePool(pool PoolDefinition) error {
 	normalizePoolDefinition(&pool)
@@ -954,6 +1019,10 @@ func (r *PoolRegistry) SavePool(pool PoolDefinition) error {
 	}
 	if len(pool.Members) == 0 || strings.TrimSpace(pool.LeaderAuth) == "" {
 		return errors.New("at least one member account (members or leader_auth) is required")
+	}
+
+	if err := validatePoolModelCompatibility(&pool); err != nil {
+		return err
 	}
 
 	key := strings.ToLower(trimmedPrefix)

@@ -856,8 +856,12 @@ func getAgentMatrixResponse() ([]byte, error) {
 			availablePools = append(availablePools, poolName)
 
 			targetModel := ""
-			if len(p.Policy.TargetModels) > 0 {
+			if len(p.Policy.TargetModels) > 0 && strings.TrimSpace(p.Policy.TargetModels[0]) != "" {
 				targetModel = p.Policy.TargetModels[0]
+			} else if activeM := p.ActiveModelForAccount(p.ActiveLeader); strings.TrimSpace(activeM) != "" {
+				targetModel = activeM
+			} else if leaderM := p.ActiveModelForAccount(p.LeaderAuth); strings.TrimSpace(leaderM) != "" {
+				targetModel = leaderM
 			} else if strings.Contains(strings.ToLower(poolName), "claude") {
 				targetModel = "claude-sonnet-4-6"
 			} else if strings.Contains(strings.ToLower(poolName), "codex") {
@@ -1913,8 +1917,12 @@ func postAgentMatrixResponse(body []byte) ([]byte, error) {
 			}
 			availablePools = append(availablePools, poolName)
 			targetModel := ""
-			if len(p.Policy.TargetModels) > 0 {
+			if len(p.Policy.TargetModels) > 0 && strings.TrimSpace(p.Policy.TargetModels[0]) != "" {
 				targetModel = p.Policy.TargetModels[0]
+			} else if activeM := p.ActiveModelForAccount(p.ActiveLeader); strings.TrimSpace(activeM) != "" {
+				targetModel = activeM
+			} else if leaderM := p.ActiveModelForAccount(p.LeaderAuth); strings.TrimSpace(leaderM) != "" {
+				targetModel = leaderM
 			}
 			poolDetails[poolName] = PoolDetailInfo{
 				ID:          poolName,

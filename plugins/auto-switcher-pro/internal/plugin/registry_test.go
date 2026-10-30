@@ -637,3 +637,67 @@ func TestReadConfigAuthDir_CustomAndFallback(t *testing.T) {
 	}
 }
 
+func TestPoolRegistry_ModelFamilyCompatibilityValidation(t *testing.T) {
+	stateFile := filepath.Join(t.TempDir(), "compatibility_pools.json")
+	reg := NewPoolRegistry(stateFile)
+
+	// 1. Incompatible: Codex pool with Gemini target model
+	incompatibleCodexTarget := PoolDefinition{
+		ID:         "Pool-02-codex",
+		Family:     "codex",
+		BasePrefix: "codex",
+		LeaderAuth: "codex-1.json",
+		Policy: PoolPolicy{
+			TargetModels: []string{"gemini-3.8-flash-high"},
+		},
+	}
+	if err := reg.SavePool(incompatibleCodexTarget); err == nil {
+		t.Fatalf("expected error saving codex pool with gemini target model, got nil")
+	}
+
+	// 2. Incompatible: Codex pool with Gemini member model
+	incompatibleCodexMember := PoolDefinition{
+		ID:         "Pool-02-codex",
+		Family:     "codex",
+		BasePrefix: "codex",
+		LeaderAuth: "codex-1.json",
+		MemberModels: map[string]string{
+			"codex-1.json": "gemini-3.8-flash-high",
+		},
+	}
+	if err := reg.SavePool(incompatibleCodexMember); err == nil {
+		t.Fatalf("expected error saving codex pool with gemini member model, got nil")
+	}
+
+	// 3. Incompatible: Gemini pool with GPT target model
+	incompatibleGemini := PoolDefinition{
+		ID:         "Pool-01-gemini",
+		Family:     "gemini_pure",
+		BasePrefix: "agy",
+		LeaderAuth: "gemini-1.json",
+		Policy: PoolPolicy{
+			TargetModels: []string{"gpt-4o"},
+		},
+	}
+	if err := reg.SavePool(incompatibleGemini); err == nil {
+		t.Fatalf("expected error saving gemini pool with gpt target model, got nil")
+	}
+
+	// 4. Compatible: Codex pool with valid Codex model
+	compatibleCodex := PoolDefinition{
+		ID:         "Pool-02-codex",
+		Family:     "codex",
+		BasePrefix: "codex",
+		LeaderAuth: "codex-1.json",
+		Policy: PoolPolicy{
+			TargetModels: []string{"gpt-5.4"},
+		},
+		MemberModels: map[string]string{
+			"codex-1.json": "gpt-5.4",
+		},
+	}
+	if err := reg.SavePool(compatibleCodex); err != nil {
+		t.Fatalf("expected successful save for compatible codex pool, got: %v", err)
+	}
+}
+
