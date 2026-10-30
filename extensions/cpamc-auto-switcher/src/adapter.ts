@@ -632,7 +632,7 @@ function renderRaceBox(
 	safeW: number,
 	s: ThemeStyler,
 ): string[] {
-	// Ancho exacto de la mini-caja = innerW (44 caracteres para safeW=48)
+	// Ancho exacto de la mini-caja = innerW (44 caracteres para safeW=48, 34 para safeW=38)
 	const boxW = Math.max(20, innerW);
 
 	// Línea 1: ╭─ 5 HORAS ────────────── Quedan 5h 0m ────╮
@@ -641,14 +641,17 @@ function renderRaceBox(
 	const titleRuleLen = Math.max(1, boxW - visibleLen(leftTitle) - visibleLen(rightRem));
 	const boxTop = `${leftTitle}${s.border("─".repeat(titleRuleLen))}${rightRem}`;
 
-	// Barras de 11 celdas para aprovechar el espacio ganado
-	const gaugeCells = 11;
+	// Barras de 11 celdas para aprovechar el espacio ganado en >=44, u 8 celdas en <40
+	const gaugeCells = boxW < 40 ? 8 : 11;
 
 	// Línea 2: Tiempo transcurrido (outer ring)
 	const timeBar = renderTimeGauge(pace.timeElapsedPct, gaugeCells);
 	const timePctStr = `${Math.round(pace.timeElapsedPct)}%`.padStart(4, " ");
 	const leftTime = `${s.border("│")} ${s.accentCyan("⏱")} ${timeBar} ${s.cyan(timePctStr)}`;
-	const rightPill = `${pace.pillColor(pace.pillLabel)} ${s.border("│")}`;
+	const pillLabel = boxW < 40
+		? pace.pillLabel.replace("Ritmo holgado", "Holgado").replace("Ritmo ", "").replace("Vas muy rápido", "Rápido")
+		: pace.pillLabel;
+	const rightPill = `${pace.pillColor(pillLabel)} ${s.border("│")}`;
 	const spTime = Math.max(1, boxW - visibleLen(leftTime) - visibleLen(rightPill));
 	const boxLine1 = `${leftTime}${" ".repeat(spTime)}${rightPill}`;
 
@@ -687,12 +690,12 @@ function renderWeeklyCompactPill(
 
 	// Línea 1: ╭─ SEMANAL ⏱ ▰▰▰▰▰▰▰▰▰▱▱ 85% Quedan 1d 1h ─╮
 	const leftTitle = `${s.border("╭─ ")}${s.accent("SEMANAL")} ${s.accentCyan("⏱")} `;
-	const remText = `Quedan ${pace.remainingFormatted}`;
+	const remText = boxW < 40 ? pace.remainingFormatted : `Quedan ${pace.remainingFormatted}`;
 	const pctText = `${pace.consumedPct}%`;
 	const rightInfo = ` ${s.boldWhite(pctText)} ${s.boldWhite(remText)}`;
 
 	const avail = boxW - visibleLen(leftTitle) - visibleLen(rightInfo) - 3;
-	const gaugeCells = Math.min(11, Math.max(6, avail));
+	const gaugeCells = Math.min(boxW < 40 ? 8 : 11, Math.max(5, avail));
 	const quotaBar = renderSpectralGauge(pace.consumedPct, gaugeCells);
 	const dashesCount = Math.max(1, boxW - visibleLen(leftTitle) - visibleLen(quotaBar) - visibleLen(rightInfo) - 2);
 	const boxTop = `${leftTitle}${quotaBar}${rightInfo} ${s.border("─".repeat(dashesCount) + "╮")}`;
@@ -949,15 +952,16 @@ export function formatSidebarQuotaCardLines(
 	}
 
 	const tagW = visibleLen(stateTag);
-	const fixedPrefixW = pair.isNativeReadOnly ? (18 + 5 + tagW + 2) : (11 + 5 + tagW + 2);
+	const prefixLabel = pair.isNativeReadOnly
+		? (safeW <= 40 ? "⚡ CUENTA: " : "⚡ CUENTA FIJA: ")
+		: "⚡ POOL: ";
+	const fixedPrefixW = visibleLen("╭─ ") + visibleLen(prefixLabel) + visibleLen(" ─ ") + tagW + visibleLen(" ─") + 2;
 	const maxFamilyW = Math.max(3, safeW - fixedPrefixW);
 	const familyDisplay = truncateWithAnsi(
 		pair.isNativeReadOnly ? pair.poolKey : pair.familyName,
 		maxFamilyW,
 	);
-	const titlePrefix = pair.isNativeReadOnly
-		? `${s.border("╭─ ")}${s.accent("⚡ CUENTA FIJA: ")}${s.textWhite(familyDisplay)} ${s.border("─ ")}${stateTag} ${s.border("─")}`
-		: `${s.border("╭─ ")}${s.accent("⚡ POOL: ")}${s.textWhite(familyDisplay)} ${s.border("─ ")}${stateTag} ${s.border("─")}`;
+	const titlePrefix = `${s.border("╭─ ")}${s.accent(prefixLabel)}${s.textWhite(familyDisplay)} ${s.border("─ ")}${stateTag} ${s.border("─")}`;
 	const prefixLen = visibleLen(titlePrefix);
 	const titleRules = Math.max(1, safeW - prefixLen - 1);
 	const top = fitToWidth(`${titlePrefix}${s.border("─".repeat(titleRules) + "╮")}`, safeW);
@@ -1003,14 +1007,16 @@ export function formatSidebarQuotaCardLines(
 		? s.error("🛡[DISYUNTOR]")
 		: hasActiveInterception
 			? s.amber("🛡[INTERCEPCIÓN]")
-			: s.accent("🛡[CUIDANDO EL CHAT]");
+			: innerW < 40
+				? s.accent("🛡[CENTINELA]")
+				: s.accent("🛡[CUIDANDO EL CHAT]");
 
 	const headerTag = isTripped
 		? s.error(`🛑 DISPARADO ${countdownTag}`)
 		: hasActiveInterception
-			? s.amber("⚡ Bucle Interceptado")
+			? s.amber(innerW < 40 ? "⚡ Bucle" : "⚡ Bucle Interceptado")
 			: isBusy
-				? s.live("⚡ Monitoreando turno")
+				? s.live(innerW < 40 ? "⚡ Escribiendo" : "⚡ Monitoreando turno")
 				: s.idle("● En guardia");
 
 	const rule1Len = Math.max(1, innerW - visibleLen(headerTitle) - visibleLen(headerTag) - 2);
@@ -1019,11 +1025,14 @@ export function formatSidebarQuotaCardLines(
 		safeW,
 	);
 
-	// Barra del turno en vivo de 10 celdas
+	// Barra del turno en vivo de 10 celdas (u 8 celdas en <40)
 	const toolCount = telemetry.totalToolCount || 0;
-	const turnGauge = renderSpectralGauge(Math.round((toolCount / 15) * 100), 10);
+	const turnGaugeCells = innerW < 40 ? 8 : 10;
+	const turnGauge = renderSpectralGauge(Math.round((toolCount / 15) * 100), turnGaugeCells);
 	const turnPctColor = toolCount >= 14 ? s.error : toolCount >= 10 ? s.amber : s.idle;
-	const turnLabel = `${s.slate("Turno en vivo:")} [${turnGauge}]   ${turnPctColor(String(toolCount) + "/15")} ${s.muted("acciones")}`;
+	const turnPrefix = innerW < 40 ? s.slate("Turno:") : s.slate("Turno en vivo:");
+	const turnSuffix = innerW < 40 ? s.muted("act.") : s.muted("acciones");
+	const turnLabel = `${turnPrefix} [${turnGauge}]   ${turnPctColor(String(toolCount) + "/15")} ${turnSuffix}`;
 	const spTurn = Math.max(1, innerW - visibleLen(turnLabel));
 	const cockpitTurnLine = fitToWidth(`${s.border("│")} ${turnLabel}${" ".repeat(spTurn)} ${s.border("│")}`, safeW);
 
@@ -1122,8 +1131,12 @@ export function formatSidebarQuotaCardLines(
 		// Fila 3: Guardia Activa con Telemetría viva (Opción 3)
 		const mitigated = telemetry.mitigatedCount || 0;
 		const guardLabel = mitigated > 0
-			? `${s.accent("🛡 Guardia:")} ${s.amber(`${mitigated} mitigado (~${Math.max(1, Math.round((telemetry.tokensSavedEstimate || 30000) / 1000))}k tk salvados)`)}`
-			: `${s.accent("🛡 Guardia:")} ${s.idle("0 bucles · Código protegido")}`;
+			? innerW < 40
+				? `${s.accent("🛡 Guardia:")} ${s.amber(`${mitigated} mit. (~${Math.max(1, Math.round((telemetry.tokensSavedEstimate || 30000) / 1000))}k salvados)`)}`
+				: `${s.accent("🛡 Guardia:")} ${s.amber(`${mitigated} mitigado (~${Math.max(1, Math.round((telemetry.tokensSavedEstimate || 30000) / 1000))}k tk salvados)`)}`
+			: innerW < 40
+				? `${s.accent("🛡 Guardia:")} ${s.idle("0 bucles · Protegido")}`
+				: `${s.accent("🛡 Guardia:")} ${s.idle("0 bucles · Código protegido")}`;
 		const padGuard = Math.max(0, innerW - visibleLen(guardLabel));
 		const guardRow = fitToWidth(
 			`${s.border("│")} ${guardLabel}${" ".repeat(padGuard)} ${s.border("│")}`,
@@ -1149,8 +1162,10 @@ export function formatSidebarQuotaCardLines(
 			linePeriodLeft = `${s.muted("Modo:")} ${s.amber("Standalone")}`;
 			linePeriodRight = `${s.muted("Conex:")} ${s.idle("Directa")}`;
 		} else {
-			linePeriodLeft = `${s.muted("Periodo:")} ${s.text(curPeriod)}`;
-			linePeriodRight = `${s.muted("Caché Afinidad:")} ${s.idle(affinityVal)}`;
+			const pLabel = innerW < 40 ? "24h" : curPeriod;
+			const affLabel = innerW < 40 ? "Afinidad:" : "Caché Afinidad:";
+			linePeriodLeft = `${s.muted("Periodo:")} ${s.text(pLabel)}`;
+			linePeriodRight = `${s.muted(affLabel)} ${s.idle(affinityVal)}`;
 		}
 		const spPeriod = Math.max(1, innerW - visibleLen(linePeriodLeft) - visibleLen(linePeriodRight));
 		const headerRow1 = fitToWidth(`${s.border("│")} ${linePeriodLeft}${" ".repeat(spPeriod)}${linePeriodRight} ${s.border("│")}`, safeW);
@@ -1163,10 +1178,12 @@ export function formatSidebarQuotaCardLines(
 			const spStand = Math.max(1, innerW - visibleLen(leftStand) - visibleLen(rightStand));
 			headerRow2 = fitToWidth(`${s.border("│")} ${leftStand}${" ".repeat(spStand)}${rightStand} ${s.border("│")}`, safeW);
 		} else {
-			const leftPool = `${s.muted("Modelo")} ${s.text(pair.poolKey)}`;
+			const leftPool = innerW < 40 ? s.text(pair.poolKey) : `${s.muted("Modelo")} ${s.text(pair.poolKey)}`;
 			const rightPool = hasActiveInterception
 				? `${s.amber("Frenando bucles")}`
-				: `${s.muted("Cuentas:")} ${s.text(String(pair.totalAccounts))} ${s.slate("· listas")}`;
+				: innerW < 40
+					? `${s.muted("Cuentas:")} ${s.text(String(pair.totalAccounts))} ${s.slate("ok")}`
+					: `${s.muted("Cuentas:")} ${s.text(String(pair.totalAccounts))} ${s.slate("· listas")}`;
 			const spPool = Math.max(1, innerW - visibleLen(leftPool) - visibleLen(rightPool));
 			headerRow2 = fitToWidth(`${s.border("│")} ${leftPool}${" ".repeat(spPool)}${rightPool} ${s.border("│")}`, safeW);
 		}
@@ -1233,7 +1250,7 @@ export function formatSidebarQuotaCardLines(
 		const leaderInfoLines: string[] = [];
 		const activeLeadSince = lifecycle?.active_leader_since ?? "14h";
 		const leaderTag = pair.isNativeReadOnly ? "(Cuenta fija)" : `(Líder hace ${activeLeadSince})`;
-		const leadPrefix = `${s.muted("Estado actual:")}  ${s.accent("⚡ ")}`;
+		const leadPrefix = innerW < 40 ? `${s.muted("Líder:")} ${s.accent("⚡ ")}` : `${s.muted("Estado actual:")}  ${s.accent("⚡ ")}`;
 		const leadEmailW = Math.max(5, innerW - visibleLen(leadPrefix) - visibleLen(leaderTag) - 1);
 		const cleanLeadEmail = formatCompactEmail(pair.active.accountId, leadEmailW);
 		const leadFull = `${leadPrefix}${s.text(cleanLeadEmail)} ${s.muted(leaderTag)}`;
@@ -1245,24 +1262,25 @@ export function formatSidebarQuotaCardLines(
 			if (pair.next) {
 				const nextAvailPct = pair.next.minAvailable || "21%";
 				const candConsumedPct = pair.next.consumed5h ? parseInt(pair.next.consumed5h.replace("%", "").trim(), 10) : 21;
-				const candGauge = renderSpectralGauge(candConsumedPct, 10);
+				const candGaugeCells = innerW < 40 ? 8 : 10;
+				const candGauge = renderSpectralGauge(candConsumedPct, candGaugeCells);
 				const candRight = `${candGauge} ${s.text(nextAvailPct)}`;
-				const candPrefix = `${s.muted("Candidato a Líder:")} `;
+				const candPrefix = innerW < 40 ? `${s.muted("Reserva:")} ` : `${s.muted("Candidato a Líder:")} `;
 				const candEmailW = Math.max(5, innerW - visibleLen(candPrefix) - visibleLen(candRight) - 1);
 				const cleanCandEmail = formatCompactEmail(pair.next.accountId, candEmailW);
 				const candLeft = `${candPrefix}${s.text(cleanCandEmail)}`;
 				const spCand = Math.max(1, innerW - visibleLen(candLeft) - visibleLen(candRight));
 				leaderInfoLines.push(fitToWidth(`${s.border("│")} ${candLeft}${" ".repeat(spCand)}${candRight} ${s.border("│")}`, safeW));
 			} else {
-				const candLeft = `${s.muted("Candidato a Líder:")}`;
-				const candRight = s.muted("Ninguno (Sola)");
+				const candLeft = innerW < 40 ? `${s.muted("Reserva:")}` : `${s.muted("Candidato a Líder:")}`;
+				const candRight = s.muted(innerW < 40 ? "Sola" : "Ninguno (Sola)");
 				const spCand = Math.max(1, innerW - visibleLen(candLeft) - visibleLen(candRight));
 				leaderInfoLines.push(fitToWidth(`${s.border("│")} ${candLeft}${" ".repeat(spCand)}${candRight} ${s.border("│")}`, safeW));
 			}
 		}
 
 		// Fila interactiva del acordeón colapsable
-		const hintSuffix = s.muted(" (Ctrl+Alt+X)");
+		const hintSuffix = innerW < 40 ? s.muted(" (C+A+X)") : s.muted(" (Ctrl+Alt+X)");
 		let accordionLabel = "";
 
 		if (mode === "peek") {
@@ -1278,8 +1296,8 @@ export function formatSidebarQuotaCardLines(
 		} else {
 			// collapsed (ajustado para que en 44 columnas no se trunque el atajo)
 			accordionLabel = pair.isNativeReadOnly
-				? `${s.accent("▶")} ${s.text("[Ver más: Contexto y Sesión]")}${hintSuffix}`
-				: `${s.accent("▶")} ${s.text("[Ver más: Detalles y Líderes]")}${hintSuffix}`;
+				? (innerW < 40 ? `${s.accent("▶")} ${s.text("[Ver: Contexto]")}${hintSuffix}` : `${s.accent("▶")} ${s.text("[Ver más: Contexto y Sesión]")}${hintSuffix}`)
+				: (innerW < 40 ? `${s.accent("▶")} ${s.text("[Ver más detalles]")}${hintSuffix}` : `${s.accent("▶")} ${s.text("[Ver más: Detalles y Líderes]")}${hintSuffix}`);
 		}
 
 		const makeBoxLine = (content: string) => {
@@ -1657,7 +1675,55 @@ export class CpamcTuiAdapter {
 
 		const self = this;
 
-		// cpamc-quota-card sidebar registration removed per user request
+		// 1. Siempre registrar la tarjeta cpamc-quota-card y quota independiente (para hosts con sección habilitada)
+		const quotaCardPart = {
+			render: (width?: number) => {
+				try {
+					self.lastStandaloneRenderTime = Date.now();
+					const m = self.safeGetModel();
+					const p = m ? (getRotationPairForModelSync(m.id, m.provider) || self.currentPair) : self.currentPair;
+					return formatSidebarQuotaCardLines(
+						p,
+						width || 48,
+						"\x1b[38;2;120;153;166m",
+						self.theme,
+						self.isBusy,
+						undefined,
+						self.getPeriodLabel(),
+						self.accordionMode,
+						self.peekRemainingSec,
+					);
+				} catch {
+					return [];
+				}
+			},
+			digest: () => {
+				try {
+					const m = self.safeGetModel();
+					const p = m ? (getRotationPairForModelSync(m.id, m.provider) || self.currentPair) : self.currentPair;
+					const g = runawayGuard.getTelemetry();
+					return `${m?.id || "none"}-${p?.poolKey || "none"}-${p?.active?.prefix || "none"}-${p?.active?.minAvailable || "none"}-${self.isBusy}-${self.accordionMode}-${self.peekRemainingSec}-${g.bashExplorationCount}-${g.subagentPollCount}-${g.blockedIntrospections}-${g.blockedBashEvasions}`;
+				} catch {
+					return "none";
+				}
+			},
+			invalidate: () => {},
+			handleMouse: (event: any) => {
+				try {
+					if (!event) return undefined;
+					// 1. Aceptar únicamente click izquierdo real (elimina doble toggle por press + click)
+					if (event.type === "click" && (!event.button || event.button === "left")) {
+						self.toggleExpanded();
+						return { handled: true, render: true };
+					}
+				} catch {}
+				return undefined;
+			},
+		};
+
+		gentleState.parts.set("cpamc-quota-card", quotaCardPart);
+		gentleState.parts.set("quota", quotaCardPart);
+
 		// 2. Interceptor reactivo universal sobre "footer" con protección anti-duplicación
 		const wrapFooter = (originalRail: any) => {
 			if (!originalRail || originalRail.__isCpamcDecorated) {

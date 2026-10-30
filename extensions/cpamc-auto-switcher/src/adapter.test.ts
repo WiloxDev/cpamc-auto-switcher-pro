@@ -301,9 +301,17 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 		// Invalidate and inject
 		(adapter as any).injectIntoSidebar(gentleState);
 
-		// cpamc-quota-card sidebar registration removed per user request
 		const quotaWidget = parts.get("cpamc-quota-card");
-		assert.strictEqual(quotaWidget, undefined, "quota widget should not be registered in sidebar");
+		assert.ok(quotaWidget, "quota widget must be registered under cpamc-quota-card");
+		assert.ok(parts.get("quota"), "quota widget must also be registered under quota");
+
+		// Even when accessing model throws an error, render and digest MUST return safely without throwing
+		const renderedLines = quotaWidget.render();
+		assert.ok(Array.isArray(renderedLines));
+
+		const digestStr = quotaWidget.digest();
+		assert.equal(typeof digestStr, "string");
+		assert.ok(digestStr.includes("none"));
 	});
 
 	it("resiliently hooks gentleState.parts.set so future footer overrides by Gentle-Shell are auto-decorated", () => {
@@ -443,14 +451,18 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 		// Inyectar en el sidebar
 		(adapter as any).injectIntoSidebar(gentleState);
 
-		// cpamc-quota-card sidebar registration removed per user request
 		const standaloneCard = parts.get("cpamc-quota-card");
-		assert.strictEqual(standaloneCard, undefined, "standalone card should not be registered");
+		assert.ok(standaloneCard, "standalone card should be registered");
 
-		// Caso A: Gentle-Shell NO renderiza standalone -> El footer SÍ incluye la tarjeta de cuotas
+		// Caso A: Si standaloneCard se renderiza de forma autónoma
+		const standaloneLines = standaloneCard.render(48);
+		assert.match(standaloneLines.join("\n"), /DISYUNTOR|CUIDANDO EL CHAT|CENTINELA/);
+
+		// Ahora el render() del footer decorado debe detectar que el standalone ya se dibujó y NO duplicar
 		const decoratedFooter = parts.get("footer");
-		const linesWithDecorator = decoratedFooter.render(48);
-		assert.match(linesWithDecorator.join("\n"), /DISYUNTOR|CUIDANDO EL CHAT/);
+		const linesWithoutDuplication = decoratedFooter.render(48);
+		assert.doesNotMatch(linesWithoutDuplication.join("\n"), /DISYUNTOR|CUIDANDO EL CHAT|CENTINELA/);
+		assert.match(linesWithoutDuplication.join("\n"), /Status/);
 
 		adapter.destroy();
 	});
@@ -634,6 +646,15 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 		lines.forEach((l: string, idx: number) => {
 			const len = visibleLen(l);
 			assert.strictEqual(len, 48, `Fila ${idx} debe tener exactamente 48 caracteres visibles (actual: ${len}): "${stripAnsi(l)}"`);
+		});
+	});
+
+	it("renders unified sidebar card perfectly aligned to 38 columns with symmetrical borders", () => {
+		const lines = formatSidebarQuotaCardLines(mockPoolPair, 38);
+		assert.strictEqual(lines.length >= 18, true);
+		lines.forEach((l: string, idx: number) => {
+			const len = visibleLen(l);
+			assert.strictEqual(len, 38, `Fila ${idx} debe tener exactamente 38 caracteres visibles (actual: ${len}): "${stripAnsi(l)}"`);
 		});
 	});
 
