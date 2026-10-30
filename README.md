@@ -1,58 +1,98 @@
 # ⚡ Auto Switcher Pro & CPAMC Quota Card
-### Balanceador Inteligente, Failover Reactivo y Telemetría en Vivo para Pi & Gentle-Shell
+### Failover Reactivo en <5ms, Balanceador Inteligente y Telemetría en Vivo para Agentes de Codificación
 
-[![Plataformas](https://img.shields.io/badge/Plataformas-Linux%20%7C%20macOS%20(M1--M4)%20%7C%20Windows-blue?style=flat-square)](#-instalación-rápida-multiplataforma)
-[![Harnesses Soportados](https://img.shields.io/badge/Harness-Gentle--Shell%20%7C%20Wilox--Pi%20%7C%20Pi%20Vanilla-emerald?style=flat-square)](#-harnesses-y-entornos-compatibles)
-[![Backend Engine](https://img.shields.io/badge/Backend-CPAMC%20v8%20(CLIProxyAPI)-violet?style=flat-square)](#-arquitectura-del-motor-zero-disk-mutation)
-[![Tests Passing](https://img.shields.io/badge/Tests-77%2F77%20Passing-brightgreen?style=flat-square)](#-validación-y-calidad-de-código)
+[![Release](https://img.shields.io/badge/Release-v2.5.0-blue?style=flat-square)](https://github.com/WiloxDev/cpamc-auto-switcher-pro/releases)
+[![Tests Passing](https://img.shields.io/badge/Tests-89%2F89%20Passing%20(TS)%20%7C%20Go%20100%25-brightgreen?style=flat-square)](https://github.com/WiloxDev/cpamc-auto-switcher-pro)
+[![Plataformas](https://img.shields.io/badge/Plataformas-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=flat-square)](#-instalación-rápida-60-segundos)
+[![Harnesses](https://img.shields.io/badge/Harness-Gentle--Shell%20%7C%20Wilox--Pi%20%7C%20Pi-purple?style=flat-square)](#-compatibilidad)
 
-**Auto Switcher Pro & CPAMC Quota Card** es la solución definitiva de alta disponibilidad para desarrolladores que trabajan con agentes de codificación autónomos (**Gentle-Shell**, **Wilox-Pi**, **Pi Vanilla**) conectados a **CLIProxyAPI (CPAMC)**.
-
-Combina una **arquitectura convergente de 4 pilares**:
-1. **Plugin CGO (`.so` / `.dll`)**: Interceptor en memoria RAM para balanceo predictivo y rescate reactivo instantáneo ante `HTTP 429`.
-2. **Base SQLite WAL (`rotations.db`)**: Bitácora forense de rotaciones, latencias y auditoría de incidentes.
-3. **Extensión Agente**: Publicación limpia de fachadas soberanas (`Pool-XX-<familia>`) en `/model` y `/cpamc-model`.
-4. **Tarjeta TUI `cpamc-quota-card`**: Doble reloj concéntrico en el riel derecho de Gentle-Shell (debajo de Status) con 48 columnas y acordeón interactivo.
+Elimina las interrupciones por límite de tasa (**HTTP 429 Rate Limits**), monitorea tus cuotas de modelos en tiempo real sin salir del terminal y mantén tus agentes de IA codificando sin fricción ni pérdida de contexto en **Gentle-Shell**, **Wilox-Pi** y **Pi Vanilla**.
 
 ---
 
-## 🎯 ¿Qué problemas resuelve?
+## ⚡ Instalación Rápida (60 Segundos)
 
-| Problema Habitual sin Auto Switcher Pro | Solución con Auto Switcher Pro |
-|---|---|
-| **Pared de HTTP 429 (Rate Limit)**: El agente se detiene en seco a mitad de un refactor o test TDD porque la cuenta física agotó su cuota. | **Failover Reactivo Inmediato**: Conmuta transparentemente a una cuenta de reserva en memoria RAM (`ActiveLeader`) en <5ms sin perder el hilo de la conversación. |
-| **Ceguera de Cuotas en el Terminal**: No sabes cuánto tiempo falta para que se recargue tu ventana de 5 horas o semanal sin abrir el navegador. | **Sidebar Quota Card**: Doble reloj concéntrico en vivo en el riel derecho con barras de uso, tiempo de reseteo exacto y ritmo predictivo de consumo. |
-| **Bucles Descontrolados de Agentes**: Un agente atrapado en bucle cíclico quema 100k+ tokens en minutos. | **Disyuntor Anti-Bucle (Circuit Breaker)**: Frena el bucle de raíz, calcula los tokens salvados (~85k) y genera un link a la autopsia forense web (`/incident`). |
-| **Pérdida de Prompt Caching (KV Cache)**: Cambiar de cuenta aleatoriamente destruye la caché del proveedor, duplicando latencias y costes. | **Preservación Estricta de Líder**: El líder físico se mantiene caliente mientras esté sano, superando el 90% de Cache Hit Rate. |
-| **Sobrediseño y Código Basura (Overengineering)**: El agente inventa capas abstractas, librerías innecesarias, migraciones no pedidas y código redundante. | **Guardián Anti-Sobrediseño (KISS / YAGNI)**: Skill transversal distribuido universalmente que prohíbe abstracciones prematuras y activa un disyuntor ante complejidad especulativa. |
+Elige tu caso según dónde esté tu servidor CPAMC:
+
+### Caso 1: Todo en esta máquina (Recomendado para empezar)
+> Detecta o inicia automáticamente CPAMC oficial (`router-for-me/CLIProxyAPI`), despliega el plugin CGO y monta la extensión visual en tu agente.
+
+**🐧 Linux / 🍏 macOS (Bash o Zsh):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/WiloxDev/cpamc-auto-switcher-pro/main/install.sh | bash
+```
+
+**🪟 Windows (PowerShell como Administrador):**
+```powershell
+irm https://raw.githubusercontent.com/WiloxDev/cpamc-auto-switcher-pro/main/scripts/install-windows.ps1 | iex
+```
+
+---
+
+### Caso 2: Tu servidor CPAMC está en otra máquina (LAN / Proxmox / VPS)
+> Instala **única y exclusivamente la extensión** en esta terminal de trabajo y la conecta a la IP remota sin tocar nada del servidor.
+
+**🐧 Linux / 🍏 macOS:**
+```bash
+./install.sh --ext-only --url "http://192.168.1.50:8317" --key "TU_MANAGEMENT_KEY"
+```
+
+**🪟 Windows (PowerShell):**
+```powershell
+.\scripts\install-windows.ps1 -ExtensionOnly -Url "http://192.168.1.50:8317" -Key "TU_MANAGEMENT_KEY"
+```
+
+---
+
+### Caso 3: Solo Plugin CGO (Servidor CPAMC ya existente)
+> Agrega o actualiza el motor de balanceo en un servidor CPAMC que ya tengas corriendo (Docker o binario).
+
+```bash
+./install.sh --plugin-only
+```
+
+> **💡 Consejo Magic Pairing**: Si ya tienes encendido el panel web de CPAMC (`/management.html`), ve a la pestaña *Auto Switcher Pro* y haz clic en **"Generar comando de enlace"** para obtener tu línea de conexión personalizada en 1 clic.
+
+---
+
+## ✅ Verificación en 3 Pasos
+
+Una vez concluida la instalación, realiza esta comprobación en tu terminal:
+
+1. **Abre una nueva ventana de terminal** (para cargar las nuevas variables de entorno):
+   ```bash
+   gentle-shell    # o ejecuta: pi
+   ```
+2. **Ejecuta el diagnóstico de salud**:
+   ```bash
+   /cpamc doctor
+   ```
+   *Debe confirmar los 4 componentes en verde: Servidor CPAMC, Motor CGO, SQLite WAL y Tarjeta Quota Card.*
+3. **Explora tus modelos balanceados**:
+   ```bash
+   /model
+   ```
+   *Verás tus fachadas soberanas (`cpamc/Pool-01-gemini`, etc.) listas para trabajar sin riesgo de cortes por 429.*
 
 ---
 
 ## 🖥️ La Experiencia en Terminal: `cpamc-quota-card`
 
-En **Gentle-Shell**, la tarjeta se monta orgánicamente en el riel lateral derecho, inmediatamente debajo del bloque de *Status*:
+En **Gentle-Shell**, la tarjeta se ancla de forma nativa en el riel lateral derecho (debajo del bloque de *Status*), ofreciendo telemetría visual continua sin saturar la conversación:
 
 ```text
 ╭─ ⚡ POOL: Gemini ─ [● Activo LIVE] ──────────╮
-│ Periodo: Hoy (24h)    Caché Afinidad: 92% ok │
-│ Modelo                        Pool-01-gemini │
-│ Cuentas: 2 · listas        Enfoque: Normal   │
+│ Gemini 2.5 Flash   ● 2 cuentas · listas      │
 ├──────────────────────────────────────────────┤
-│ 🔄 ROTACIONES & LIDERAZGO: Pool-01-gemini    │
-│ Rotaciones hoy: 4    │Líder actual: 1h 45m   │
-│ Rescates 429: 0      │Tokens consumidos: 420k│
-│ Turnos sostenidos:       38 turnos sin corte │
-├──────────────────────────────────────────────┤
-│ ⚡ acc-1 (Líder hace 42m)     ○ agy (95% ok) │
-│ ╭─ 5 HORAS ───────────── Quedan 3h 18m ────╮ │
-│ │ ⏱  ▰▰▰▰▱▱▱▱▱▱▱  36%      ▲ Ritmo holgado │ │
-│ │ Uso ▰▰▱▱▱▱▱▱▱▱▱ 18%            82% libre │ │
+│ ╭─ 5 HORAS ───────────── Quedan 4h 50m ────╮ │
+│ │ ⏱  ▰▱▱▱▱▱▱▱▱▱▱   3%      ▲ Ritmo holgado │ │
+│ │ Uso ▰▱▱▱▱▱▱▱▱▱▱   2%            98% libre │ │
 │ ╰──────────────────────────────────────────╯ │
-│ ╭─ SEMANAL ───────────── Quedan 5d 12h ────╮ │
-│ │ ⏱  ▰▰▰▱▱▱▱▱▱▱▱  28%      ▲ Ritmo holgado │ │
-│ │ Uso ▰▰▰▱▱▱▱▱▱▱▱ 25%            75% libre │ │
+│ ╭─ SEMANAL ───────────── Quedan 6d 23h ────╮ │
+│ │ ⏱  0%  Uso 1% · 99% libre  ▲ Ritmo holg. │ │
 │ ╰──────────────────────────────────────────╯ │
-│ Candidato a Líder: acc-2      ○ agy_1 (100%) │
+│ Estado actual      wil...io7 (agy) ○ 98% ok  │
+│ Candidato a Líder  mar...tro (agy_1) ○ 100%  │
 ├──────────────────────────────────────────────┤
 │ 🛡 [CUIDANDO EL CHAT] ──────── [○ VIGILANDO] │
 │ Subagentes             0/3 llamadas          │
@@ -63,202 +103,119 @@ En **Gentle-Shell**, la tarjeta se monta orgánicamente en el riel lateral derec
 ╰──────────────────────────────────────────────╯
 ```
 
-### 🪗 Acordeón Tri-Modal Inteligente
-Interactúa pulsando **`Ctrl+Alt+X`** o haciendo **clic con el ratón** directamente sobre la tarjeta:
-1. 🟢 **Modo Colapsado (`COLLAPSED`)**: Vista compacta que finaliza tras el bloque defensivo. Ideal para sesiones de programación continua sin distracciones visuales.
-2. 🟡 **Modo Peek 20s (`PEEK`)**: Se despliega automáticamente ante alertas de disyuntor, rescates 429 o rotaciones, mostrando una cuenta regresiva de 20s. **Inmunidad de foco**: Se auto-colapsa en cuanto el modelo comienza a generar código (`turn_start`) para no obstruir tu lectura.
-3. 🔴 **Modo Pin Fijo (`PINNED`)**: Si haces clic o pulsas `Ctrl+Alt+X`, el acordeón se expande completamente mostrando:
-   - 🔄 **Liderazgo & Rotaciones**: Rotaciones del día, duración del líder actual, rescates 429, tokens acumulados y turnos continuos.
-   - 📦 **Contexto & Compresión**: Tokens consumidos vs ventana máxima, compactaciones y eventos críticos.
-   - ⚠️ **Causas de Rotación Recientes**: Historial cronológico con causas exactas (HTTP 429, Fatiga >80%, Histéresis).
-   - 🛡️ **Guardián Anti-Sobrediseño**: Certificación visual del estado activo de las políticas de simplicidad suficiente (KISS/YAGNI).
-
----
-
-## 🛡️ Guardián Anti-Sobrediseño (Anti-Overengineering)
-
-A diferencia de los entornos genéricos donde los agentes agregan capas de abstracción no solicitadas, adaptadores redundantes o limpiezas oportunistas, Auto Switcher Pro incorpora un **estándar estricto de ingeniería de software** (`skills/anti-overengineering/SKILL.md`):
-
-- **Principios Rectores**: Obligatoriedad de **KISS** (*Keep It Simple, Stupid*) y **YAGNI** (*You Aren't Gonna Need It*).
-- **Prohibición de Código Huérfano**: Ningún subagente ni orquestador puede introducir dependencias no aprobadas, migraciones implícitas ni capas de compatibilidad innecesarias.
-- **Circuit Breaker Preventivo**: Si una propuesta altera la arquitectura o añade complejidad especulativa, el agente frena en seco y devuelve `BLOCKED` solicitando una decisión explícita antes de mutar cualquier archivo.
-- **Distribución Universal**: Sincronizado automáticamente en `~/.gentle-shell/agent/skills/`, `~/.pi/agent-wilox/skills/` y `~/.pi/agent/skills/`. Detectable y activo de forma nativa en cualquier arnés.
-
----
-
-## 🤖 Protocolo Obligatorio para Asistentes AI y Subagentes (Goal-Driven Wizard)
-
-> **AVISO PARA AGENTES DE IA (Gentle-Shell, Pi, Claude, Cursor, Copilot, etc.):**
-> Si el usuario te ha pedido configurar, instalar o enlazar este repositorio, **tu objetivo es dejar el entorno 100% operativo y listo para usar**. Está estrictamente prohibido pararse a mostrar volcados de estado pasivos o tablas con comandos manuales para que el usuario los copie. Debes actuar como un **Wizard proactivo**:
-
-### 1. La Pregunta Clave Resolutiva (Si falta CPAMC)
-Si detectas que CPAMC no está corriendo en `localhost:8317` ni hay contenedor Docker activo, **no abortes ni te detengas**. Haz al usuario exactamente esta pregunta de 2 opciones:
-> *"Veo que tu terminal está lista, pero aún no tienes un servidor CPAMC (CLIProxyAPI) activo.*
-> * * **[1] Servidor en esta PC:** Descargo e inicio automáticamente CPAMC oficial para tu sistema con Auto Switcher Pro en segundo plano.*
-> * * **[2] Conectarse a servidor remoto/LAN (Servidor de Wilox / VPS):** Solo conecto tu extensión a la IP de ese servidor sin instalar nada pesado aquí.*
-> 
-> *¿Deseas la opción **1** o **2**? Responde solo el número y yo ejecuto todo por ti."*
-
-### 2. Regla de Plataforma Estricta (Prohibido mezclar entornos)
-* **En Windows (PowerShell)**: Está **ESTRICTAMENTE PROHIBIDO** sugerir comandos `bash` o ejecutar `install-all.sh`. Debes invocar **exclusivamente PowerShell**:
-  - *Si eligió [1] Local*: Ejecuta en PowerShell:
-    `irm https://raw.githubusercontent.com/WiloxDev/cpamc-auto-switcher-pro/main/scripts/install-windows.ps1 | iex`
-  - *Si eligió [2] Remoto*: Pide la IP/URL y clave de Wilox, y ejecuta:
-    `.\scripts\install-windows.ps1 -ExtensionOnly -Url "http://<IP>:8317" -Key "<MGMT_KEY>"`
-* **En Linux / macOS (Bash / Zsh)**:
-  - *Si eligió [1] Local*: Ejecuta `./install.sh` y selecciona `[1] Descargar y desplegar CPAMC oficial`.
-  - *Si eligió [2] Remoto*: Ejecuta `./install.sh --ext-only --url "http://<IP>:8317" --key "<MGMT_KEY>"`.
-
-### 3. Cierre de Ciclo Obligatorio y Cuentas OAuth
-Tu tarea **NO termina** con la descarga de archivos:
-1. **Verificación de Salud:** Ejecuta `/cpamc doctor` y comprueba que el servidor y la extensión están en verde.
-2. **Entrega de Credenciales de Acceso:** Informa al usuario la URL del panel (`http://localhost:8317/management.html`) y que su clave administrativa quedó guardada de forma segura en `~/.cliproxy_management_key`.
-3. **Paso Final de Cuentas:** Explica con claridad:
-   > *"La instalación está completa y lista. Si aún no tienes cuentas vinculadas, abre la consola web para agregar tu primera cuenta de Google o Claude. En cuanto la agregues, sus modelos nativos y/o pools aparecerán automáticamente en `/model`."*
-
----
-
-## 🚀 Instalación Todo-en-Uno (Suite Convergente "Zero to Hero")
-
-El instalador detecta automáticamente tu entorno e instala en paralelo el ecosistema completo:
-- **Si YA tienes CPAMC**: Se conecta de inmediato, inyecta el plugin CGO, habilita SQLite WAL y monta la extensión en Gentle-Shell.
-- **Si NO tienes CPAMC**: El instalador te preguntará si deseas instalar **CLIProxyAPI oficial** (`router-for-me/CLIProxyAPI`); de ser así, descargará el ejecutable oficial (o contenedor Docker), generará `config.yaml` inicial con clave segura y lo iniciará en segundo plano automáticamente.
-
----
-
-### Vía 1: Magic Pairing Express (1 Clic desde tu Servidor CPAMC)
-Si tu servidor CPAMC ya está encendido en tu red local o VPS, genera el comando de enlace rápido desde la web de CPAMC y ejecútalo en la terminal de tu agente cliente:
-
-```bash
-# Obtiene el instalador autoconfigurado con la IP y puerto de tu CPAMC:
-curl -sSL http://<IP_CPAMC>:8317/v0/management/auto-switcher-pro/pair | bash
-```
-
----
-
-### Vía 2: Instalador Universal Multiplataforma
-
-#### 🐧 Linux & 🍏 macOS (Apple Silicon M1-M4 & Intel)
-Ejecuta directamente:
-
-```bash
-# 1. Instalación automática (auto-descubre CPAMC o te ofrece autodesplegarlo):
-./install.sh
-
-# 2. Conectar tu agente a un servidor en Red Local (LAN) o Proxmox:
-./install.sh http://192.168.1.100:8317
-
-# 3. Conectar a un VPS remoto con Management Key:
-./install.sh --url "https://cpamc.tudominio.com:8317" --key "<MANAGEMENT_KEY>"
-
-# 4. Modo solo cliente (instalar únicamente la extensión en este equipo sin tocar CPAMC):
-./install.sh --ext-only --url "http://192.168.1.100:8317"
-```
-
-#### 🪟 Windows (PowerShell)
-En Windows (como usuario estándar o administrador):
-
-```powershell
-# 1. Instalación local automática (si no tienes CPAMC, descarga el oficial de GitHub):
-.\scripts\install-windows.ps1
-
-# 2. Conectar tu agente a un servidor CPAMC en Red Local (LAN) o VPS:
-.\scripts\install-windows.ps1 -ExtensionOnly -Url "http://192.168.1.100:8317" -Key "<MANAGEMENT_KEY>"
-```
-
----
-
-## 🩺 Diagnóstico Integral y Autocorrección (`/cpamc doctor`)
-
-En cualquier momento puedes certificar que los 4 pilares del ecosistema convergen de forma saludable ejecutando en tu terminal:
-
-```bash
-/cpamc doctor
-```
-
-El asistente evaluará en tiempo real la conectividad, el motor CGO, SQLite WAL y el estado de la tarjeta en el TUI:
+### 🪗 Acordeón Interactivo Tri-Modal
+Interactúa pulsando **`Ctrl+Alt+X`** o haciendo **clic directo con el ratón**:
+- 🟢 **Colapsado (`COLLAPSED`)**: Vista ultra-compacta de 19 líneas exactas, ideal para sesiones continuas de codificación sin scroll vertical.
+- 🟡 **Peek 20s (`PEEK`)**: Se despliega automáticamente ante rescates 429 o rotaciones, con inmunidad de foco (se auto-oculta en cuanto el modelo comienza a responder).
+- 🔴 **Fijo (`PINNED`)**: Al expandir completamente la tarjeta (`Ctrl+Alt+X`), revela la telemetría forense en tiempo real aislada por cada pool:
 
 ```text
-╭─ 🩺 CPAMC AUTO-SWITCHER · DIAGNÓSTICO INTEGRAL ──────────╮
-│ Endpoint evaluado: http://192.168.1.100:8317            │
-├──────────────────────────────────────────────────────────┤
-│ [✓] Servidor CPAMC                                       │
-│     ↳ En línea en http://192.168.1.100:8317 (HTTP 200)   │
-│ [✓] Motor CGO (Auto Switcher Pro)                        │
-│     ↳ Plugin activo (auto-switcher-pro, v0.1.1)          │
-│ [✓] SQLite WAL & Telemetría                              │
-│     ↳ Canal activo (cuentas y rotaciones registradas)    │
-│ [✓] Tarjeta cpamc-quota-card                             │
-│     ↳ Montada e interceptada en el riel de Gentle-Shell │
-├──────────────────────────────────────────────────────────┤
-│ ✔ Los 4 componentes convergen en perfecta armonía.       │
-╰──────────────────────────────────────────────────────────╯
+├──────────────────────────────────────────────┤
+│ 📦 CONTEXTO & COMPRESIÓN                     │
+│ Ventana activa     14.2k / 200k (7%)         │
+│ Compresiones       0 en esta sesión          │
+├──────────────────────────────────────────────┤
+│ 🔄 ROTACIONES & LIDERAZGO: Pool-01-gemini    │
+│ Rotaciones hoy: 2    │ Líder actual: 3h 15m  │
+│ Rescates 429: 0      │ Tokens: 185k          │
+│ Turnos sostenidos:   24 turnos sin corte     │
+├──────────────────────────────────────────────┤
+│ ⚠️ CAUSAS DE ROTACIÓN (ÚLTIMAS 24H)          │
+│ 15:32  mar...tro ➔ wil...io7  [Histéresis Δ] │
+│ 12:42  wil...io7 ➔ mar...tro    [Fatiga 80%] │
+│ 09:15  mar...tro ➔ wil...io7  [Prompt Cache] │
+╰──────────────────────────────────────────────╯
 ```
 
-> **Autoreparación rápida**: Si alguna verificación falla (por ejemplo, caché desactualizada o TUI en espera), ejecuta `/cpamc doctor fix` para re-sincronizar automáticamente el catálogo y la tarjeta.
+> **Política de Telemetría Honesta (Zero Mock)**: Si el pool activo no tiene rotaciones en las últimas 24h, la tarjeta muestra con total transparencia:  
+> `│ ● Líder firme · Sin rotaciones recientes      │`  
+> Erradicando cualquier dato inventado o duplicado entre pools.
 
 ---
 
-## 🌐 Conectividad Universal "Zero-Config"
+## 🎮 Comandos Esenciales
 
-El plugin está diseñado bajo el principio de **cero configuraciones manuales complejas**. Descubre automáticamente el endpoint de CPAMC evaluando la siguiente cascada en tiempo de ejecución:
-
-1. **Variables de entorno**: `CLIPROXYAPI_BASE_URL` o `CPAMC_URL`.
-2. **Archivo de enlace persistente (`~/.cliproxy_url`)**: Si tu CPAMC corre en otra máquina, basta con escribir `http://<ip>:<puerto>` en este archivo una sola vez.
-3. **Auto-descubrimiento en `config.yaml`**: Lee automáticamente el puerto real configurado en CPAMC (`server.port: 8080`, `9000`, etc.), sin asumir puertos fijos.
-4. **Loopbacks estándar**: `http://127.0.0.1:8317` y `http://localhost:8317`.
-5. **Entornos de contenedor Docker / WSL**: Detección nativa de `http://host.docker.internal:8317`.
-
----
-
-## 🎮 Comandos y Atajos en tu Agente
-
-Una vez instalado, abre tu terminal con **`gentle-shell`** o **`pi`**:
-
-- **`/model`**: Selector oficial donde verás tus **Pools Soberanos** publicados limpiamente (`cpamc/Pool-01-gemini`, `cpamc/Pool-02-gemini`, etc.). Todas las cuentas físicas rotan de forma opaca y protegida detrás de esta fachada.
-- **`/cpamc-model`**: Selector complementario de modelos con balanceo inteligente.
-- **`/cpamc doctor`**: Diagnóstico integral de los 4 componentes con autoreparación asistida.
-- **`/incident`** o **`/autopsia`**: Abre en tu navegador la autopsia forense de CPAMC Console si el disyuntor anti-bucle frenó una anomalía.
-- **`/model-default`**: Restablece el modelo del proyecto actual al default global de Pi.
-- **`Ctrl+Alt+X`**: Alterna cíclicamente el modo del acordeón de la tarjeta lateral.
+| Comando / Atajo | Función |
+|---|---|
+| `/model` | Selector de modelos con **Pools Soberanos** publicados limpiamente (`cpamc/Pool-XX-...`) |
+| `/cpamc doctor` | Diagnóstico de salud integral del ecosistema |
+| `/cpamc doctor fix` | Autoreparación y sincronización en caliente si hubo cambios de red |
+| `/incident` o `/autopsia` | Abre la autopsia web si el disyuntor frenó un bucle descontrolado de tokens |
+| `Ctrl+Alt+X` | Alterna entre los modos del acordeón de la tarjeta lateral |
 
 ---
 
-## 🔒 Arquitectura del Motor (Pure Virtual Isolation)
+## 🛡️ Transparencia de Sistema y Seguridad (Zero-Disk Mutation)
 
-- **100% en RAM (Zero Disk Mutation)**: Todas las rotaciones de cuentas se realizan en la memoria del plugin (`ActiveLeader`). Los archivos OAuth físicos en disco (`/root/.cli-proxy-api/*.json` o `~/.cli-proxy-api/`) permanecen intactos y jamás son mutados ni renombrados.
-- **Coexistencia Granular**:
-  - Las cuentas físicas pertenecientes a pools se ocultan de `/model` para no saturar el catálogo.
-  - Las cuentas libres (OpenAI, DeepSeek, Claude nativo, cuentas de prueba) conservan **100% el comportamiento nativo de CPAMC** ("Auth Files Management"), pasando limpiamente a `/model` con sus exclusiones de disco originales.
-- **Inmunidad a Actualizaciones (`Anti-Update Safe`)**:
-  - Interceptor en tiempo de ejecución sobre el Map `state.parts.set` de Gentle-Shell. Aunque actualices `gentle-pi` desde npm o se restaure el layout predeterminado, la tarjeta se re-envuelve de forma indestructible.
+Auto Switcher Pro está concebido bajo estándares de ingeniería de mínima intervención y máxima auditabilidad:
+
+- **100% en Memoria RAM**: El balanceo de cuentas, la detección predictiva (>80% de fatiga) y los rescates por 429 se ejecutan en RAM (`ActiveLeader`). **Tus archivos de credenciales OAuth físicos en disco (`~/.cli-proxy-api/*.json`) nunca son modificados, renombrados ni borrados.**
+- **Archivos gestionados por el instalador**:
+  - `~/cliproxyapi/plugins/auto-switcher-pro-linux-amd64.so` (Plugin CGO en el servidor).
+  - `~/.pi/gentle-shell/agent/extensions/cpamc-auto-switcher` (Extensión del cliente).
+  - Respaldo automático `.bak` antes de cualquier modificación en `config.yaml` o `settings.json`.
+- **Desinstalación limpia**:
+  Si deseas desinstalar la extensión de tu cliente, basta con eliminar la carpeta de la extensión:
+  ```bash
+  rm -rf ~/.pi/gentle-shell/agent/extensions/cpamc-auto-switcher
+  ```
 
 ---
 
-## 🧪 Validación y Calidad de Código
+## 👥 Compatibilidad de Arneses y Entornos
 
-El repositorio cuenta con una suite completa de pruebas unitarias y de integración continua bajo metodología TDD:
+| Entorno | Soporte Visual | Balanceo y Pools | Sensor Anti-Sobrediseño |
+|---|:---:|:---:|:---:|
+| **Gentle-Shell** | ✅ Tarjeta 48 col en riel derecho | ✅ Nativo | ✅ Activo (`~/.gentle-shell/agent/skills`) |
+| **Wilox-Pi** | ✅ Telemetría en Footer / Status | ✅ Nativo | ✅ Activo (`~/.pi/agent-wilox/skills`) |
+| **Pi Vanilla** | ✅ Telemetría en Footer | ✅ Nativo | ✅ Activo (`~/.pi/agent/skills`) |
+| **CLIProxyAPI v8.0.13+** | ✅ Consola de Administración Web | ✅ Motor CGO | — |
 
+---
+
+<details>
+<summary>🤖 <b>Protocolo para Asistentes AI y Subagentes Autónomos</b> (Clic para expandir)</summary>
+
+Si estás actuando como asistente de IA (Gentle-Shell, Pi, Claude Code, Cursor, Copilot) guiando al usuario en este repositorio:
+
+1. **Objetivo de Ciclo Completo**: Tu labor es dejar el entorno 100% operativo, no devolver tablas de comandos pasivas para que el usuario las copie.
+2. **Pregunta Resolutiva (Si CPAMC no está corriendo)**:
+   > *"Veo que tu terminal está lista, pero aún no tienes un servidor CPAMC activo.*
+   > * * **[1] Local:** Descargo e inicio automáticamente CPAMC oficial con Auto Switcher Pro.*
+   > * * **[2] Remoto/LAN:** Conecto tu extensión a la IP de un servidor existente.*
+   > *¿Deseas la opción 1 o 2? Responde el número y yo me encargo de todo."*
+3. **Regla de Plataforma Estricta**:
+   - En Windows: Invoca **exclusivamente PowerShell** (`install-windows.ps1`), jamás sugieras comandos `bash`.
+   - En Linux / macOS: Ejecuta `./install.sh`.
+4. **Cierre de Ciclo**:
+   - Valida la salud con `/cpamc doctor`.
+   - Recuerda al usuario abrir `http://localhost:8317/management.html` para vincular sus primeras cuentas OAuth si aún no lo ha hecho.
+
+</details>
+
+---
+
+<details>
+<summary>🧪 <b>Arquitectura Interna y Validación TDD</b> (Clic para expandir)</summary>
+
+### Los 4 Pilares de Rotación
+1. **Pertenencia & Sanidad**: Exclusión estricta de cuentas `[INVALID]`, `[EXPIRED]` o sin pool asignado (`[OTHER]`).
+2. **Predictivo (>80% volumen)**: Rota preventivamente a una cuenta fresca solo si existe reserva sana con cuota disponible (`hasHealthyReserve`).
+3. **Histéresis en `/new`**: Evita el flapping de cuentas protegiendo el Prompt Caching (KV Cache) del proveedor con afinidad >90%.
+4. **Reactivo Inmediato**: Rescate instantáneo ante `HTTP 429`, caídas `5xx` o `ECONNRESET` en <5ms (`force = true`).
+
+### Ejecución de Pruebas
 ```bash
-# Probar la extensión de TypeScript (TUI, Acordeón, Guards, Red)
-cd extensions/cpamc-auto-switcher
-npm test
+# Validar extensión TypeScript (TUI, Acordeón, Guards)
+cd extensions/cpamc-auto-switcher && npm test
 
-# Probar el motor en Go
+# Validar motor CGO en Go
 go test ./...
 cd plugins/auto-switcher-pro && go test ./...
 ```
+*Suite con 89/89 pruebas unitarias TypeScript y suite completa de Go pasando en verde.*
 
-**Resultado de Validación**: **77 de 77 pruebas unitarias pasando en verde**.
-
----
-
-## 👥 Harnesses y Entornos Compatibles
-
-- **Gentle-Shell**: Soporte visual completo en el riel lateral derecho (`cpamc-quota-card`), acordeón 3 modos, captura de mouse y carga nativa de skills en `~/.gentle-shell/agent/skills/`.
-- **Wilox-Pi** (`~/.pi/agent-wilox/`): Soporte de orquestación Planned Workflow, integración de subagentes, telemetría y sensor anti-sobrediseño.
-- **Pi Vanilla** (`~/.pi/agent/`): Integración fluida en terminal estándar con telemetría en Footer y skills transversales aprovisionados.
-- **CLIProxyAPI Console (CPAMC v8.0.13+)**: Soporte nativo de plugin dinámico para Linux, macOS y Windows.
+</details>
 
 ---
 
