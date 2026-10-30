@@ -716,6 +716,25 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 					"info",
 				);
 			}
+
+			// Cirugía 3 / Idea 3: Guardia Pre-Vuelo en Pi ante modelos incompatibles en Pools
+			if (model?.id && typeof model.id === "string" && model.id.toLowerCase().startsWith("pool-")) {
+				const poolName = model.id.toLowerCase();
+				const pair = getRotationPairForModelSync(model.id, model.provider || "cpamc");
+				const targetM = (pair?.active?.model || "").toLowerCase();
+				if (poolName.includes("codex") && targetM.includes("gemini")) {
+					ctx.ui?.notify?.(
+						`🛑 Incompatibilidad detectada: ${model.id} tiene asignado ${targetM}. Configura un modelo Codex (ej: gpt-5.4) en el panel para evitar 503.`,
+						"error",
+					);
+				} else if (poolName.includes("gemini") && (targetM.includes("gpt-") || targetM.includes("claude"))) {
+					ctx.ui?.notify?.(
+						`🛑 Incompatibilidad detectada: ${model.id} tiene asignado ${targetM}. Configura un modelo Gemini en el panel para evitar 503.`,
+						"error",
+					);
+				}
+			}
+
 			if (cwd && model?.id && model?.provider) {
 				saveProjectModel(cwd, model.provider, model.id);
 			}

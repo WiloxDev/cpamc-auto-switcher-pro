@@ -699,5 +699,44 @@ func TestPoolRegistry_ModelFamilyCompatibilityValidation(t *testing.T) {
 	if err := reg.SavePool(compatibleCodex); err != nil {
 		t.Fatalf("expected successful save for compatible codex pool, got: %v", err)
 	}
+
+	// 5. Startup Self-Healing test: Corrupt pool in raw JSON gets auto-healed on Load()
+	corruptedStateJSON := `{
+  "version": 1,
+  "pools": [
+    {
+      "id": "Pool-02-codex",
+      "family": "codex",
+      "base_prefix": "codex",
+      "leader_auth": "codex-1.json",
+      "policy": {
+        "target_models": ["gemini-3.8-flash-high"]
+      },
+      "member_models": {
+        "codex-1.json": "gemini-3.8-flash-high"
+      }
+    }
+  ]
+}`
+	healFile := filepath.Join(t.TempDir(), "auto-switcher-pro-state.json")
+	if err := os.WriteFile(healFile, []byte(corruptedStateJSON), 0644); err != nil {
+		t.Fatalf("failed to write corrupted state: %v", err)
+	}
+
+	healingReg := NewPoolRegistry(healFile)
+	if err := healingReg.Load(); err != nil {
+		t.Fatalf("Load() failed on corrupted state: %v", err)
+	}
+
+	healedPool, ok := healingReg.GetPool("codex")
+	if !ok {
+		t.Fatalf("expected healed codex pool to exist")
+	}
+	if len(healedPool.Policy.TargetModels) == 0 || healedPool.Policy.TargetModels[0] != "gpt-5.4" {
+		t.Fatalf("expected target model to be self-healed to gpt-5.4, got: %v", healedPool.Policy.TargetModels)
+	}
+	if healedPool.MemberModels["codex-1.json"] != "gpt-5.4" {
+		t.Fatalf("expected member model to be self-healed to gpt-5.4, got: %v", healedPool.MemberModels["codex-1.json"])
+	}
 }
 

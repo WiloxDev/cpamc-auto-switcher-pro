@@ -22,11 +22,14 @@ fi
 TMP_DIR=""
 if [ -z "${INSTALLER}" ]; then
   # Ejecución vía pipe web (curl | bash): descargar el instalador oficial
+  # Permite fijar un tag, commit o rama inmutable vía INSTALL_REF (por defecto: main)
+  REF="${INSTALL_REF:-main}"
   TMP_DIR="$(mktemp -d)"
   trap 'rm -rf "$TMP_DIR"' EXIT
   INSTALLER="${TMP_DIR}/install-all.sh"
-  if ! curl -sSL -f -o "${INSTALLER}" "https://raw.githubusercontent.com/WiloxDev/cpamc-auto-switcher-pro/main/scripts/install-all.sh"; then
-    echo "❌ Error: No se pudo descargar el instalador oficial desde GitHub."
+  DOWNLOAD_URL="https://raw.githubusercontent.com/WiloxDev/cpamc-auto-switcher-pro/${REF}/scripts/install-all.sh"
+  if ! curl -sSL -f -o "${INSTALLER}" "${DOWNLOAD_URL}"; then
+    echo "❌ Error: No se pudo descargar el instalador oficial (${REF}) desde GitHub."
     exit 1
   fi
 fi

@@ -15,8 +15,16 @@ const TERMINAL_STATUSES = new Set([
 const RATE_LIMIT_PATTERN =
 	/\b429\b|rate.?limit|too many requests|quota|resource.?exhausted|\b502\b|\b503\b|\b504\b|service.?unavailable|bad.?gateway|gateway.?timeout|UNAVAILABLE|terminated|UND_ERR_BODY_TERMINATED|socket.?hang.?up|ECONNRESET|connection.?reset|connection.?refused|broken.?pipe|unexpected.?eof|\beof\b/i;
 
+const AUTH_CONFIG_ERROR_PATTERN =
+	/auth_not_found|incompatible_family_model|no active account matching model|invalid_model_for_provider/i;
+
 function isRateLimitOrNetworkError(text: unknown): boolean {
 	if (typeof text !== "string") return false;
+	// Cirugía Falsa Rotación: Si el error es 503 auth_not_found o incompatibilidad de modelo estática,
+	// NO clasificarlo como error de red ni cuota para evitar rotaciones cíclicas inútiles.
+	if (AUTH_CONFIG_ERROR_PATTERN.test(text)) {
+		return false;
+	}
 	return RATE_LIMIT_PATTERN.test(text);
 }
 

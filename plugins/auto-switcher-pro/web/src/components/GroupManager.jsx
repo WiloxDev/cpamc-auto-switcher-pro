@@ -1356,12 +1356,17 @@ function sortModelsByFamilyAndVersion(models, familyRole, isCodex, isGemini) {
         const oppositeSet = new Set();
         const familyMatchingModels = [];
 
+        // 1. Prioridad Máxima: Si la cuenta líder ya inspeccionó sus modelos nativos vía getAuthFileModels:
+        const liveLeaderModels = selectedAuthModels.length > 0 ? selectedAuthModels.map(toBaseModelId).filter(Boolean) : [];
+
         models
           .map(toBaseModelId)
           .filter(Boolean)
           .filter(isNotVirtualPoolModel)
           .forEach((id) => {
-            if (matchesFamilyModel(trimmedBase, id, excludeVersion55)) {
+            // Cirugía 2 / Idea 2: Si el modelo proviene de la credencial física viva seleccionada, es válido por definición
+            const isLiveSupported = liveLeaderModels.includes(id);
+            if (isLiveSupported || matchesFamilyModel(trimmedBase, id, excludeVersion55)) {
               familyMatchingModels.push(id);
             }
           });

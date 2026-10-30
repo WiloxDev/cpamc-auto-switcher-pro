@@ -523,9 +523,29 @@ install_plugin() {
         echo -e "${GREEN}    [✓] Plugin preparado desde binario local compilado.${RESET}"
     else
         echo -e "Descargando plugin binario precompilado desde GitHub..."
-        local dl_url="${REPO_URL}/raw/main/bin/${so_name}"
+        local ref="${INSTALL_REF:-main}"
+        local dl_url="${REPO_URL}/raw/${ref}/bin/${so_name}"
+        local sha_url="${REPO_URL}/raw/${ref}/bin/${so_name}.sha256"
         if curl -sSL -f -o "$tmp_so" "$dl_url" 2>/dev/null; then
             echo -e "${GREEN}    [✓] Plugin descargado con éxito.${RESET}"
+            # Verificación de integridad SHA256 si existe checksum publicado
+            local tmp_sha="${tmp_so}.sha256"
+            if curl -sSL -f -o "$tmp_sha" "$sha_url" 2>/dev/null; then
+                echo -e "    Validando integridad criptográfica SHA256..."
+                local expected_hash actual_hash
+                expected_hash=$(awk '{print $1}' "$tmp_sha")
+                actual_hash=$(sha256sum "$tmp_so" | awk '{print $1}')
+                if [ -n "$expected_hash" ] && [ "$expected_hash" = "$actual_hash" ]; then
+                    echo -e "${GREEN}    [✓] Integridad SHA256 verificada con éxito (${actual_hash:0:16}...)${RESET}"
+                else
+                    echo -e "${RED}    [✗] Error de seguridad: El hash SHA256 del binario no coincide.${RESET}"
+                    echo -e "        Esperado: ${expected_hash}"
+                    echo -e "        Obtenido: ${actual_hash}"
+                    rm -f "$tmp_so" "$tmp_sha"
+                    return 1
+                fi
+                rm -f "$tmp_sha"
+            fi
         else
             echo -e "${YELLOW}    [!] No se pudo descargar directamente desde raw GitHub.${RESET}"
             echo -e "    Por favor compila localmente con './scripts/build-plugin.sh ${arch}' si eres desarrollador."

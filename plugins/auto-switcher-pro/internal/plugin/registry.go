@@ -439,8 +439,28 @@ func (r *PoolRegistry) Load() error {
 			r.standaloneAliases[strings.TrimSpace(k)] = strings.ToUpper(strings.TrimSpace(v))
 		}
 	}
+	needsSaveSanitized := false
 	for _, p := range state.Pools {
 		normalizePoolDefinition(&p)
+		// Cirugía 1 / Idea 1 (Startup Self-Healing): Saneamiento automático al arrancar
+		if err := validatePoolModelCompatibility(&p); err != nil {
+			famShort := familyCanonicalShortName(p.Family, p.BasePrefix)
+			defaultModel := "gemini-3.8-flash-high"
+			if famShort == "codex" {
+				defaultModel = "gpt-5.4"
+			} else if famShort == "claude" {
+				defaultModel = "claude-sonnet-4-6"
+			}
+			p.Policy.TargetModels = []string{defaultModel}
+			if p.MemberModels == nil {
+				p.MemberModels = make(map[string]string)
+			}
+			for _, m := range p.Members {
+				p.MemberModels[m] = defaultModel
+			}
+			needsSaveSanitized = true
+		}
+
 		key := strings.ToLower(strings.TrimSpace(p.BasePrefix))
 		if key != "" {
 			if live, ok := r.activeLeaders[key]; ok && live != "" {
@@ -450,6 +470,56 @@ func (r *PoolRegistry) Load() error {
 		}
 	}
 	r.loaded = true
+	if needsSaveSanitized {
+		// Dejar backup timestamped antes de auto-sanear
+		bakPath := fmt.Sprintf("%s.bak-pre-heal-%s", r.filePath, time.Now().UTC().Format("20060102-150405"))
+		_ = os.WriteFile(bakPath, data, 0644)
+		_ = r.saveUnlocked()
+	}
+	return nil
+}
+
+// saveUnlocked writes state without acquiring r.mu lock (caller must hold r.mu.Lock)
+func (r *PoolRegistry) saveUnlocked() error {
+	poolsList := make([]PoolDefinition, 0, len(r.pools))
+	for _, p := range r.pools {
+		poolsList = append(poolsList, p)
+	}
+	aliasesCopy := make(map[string]string, len(r.standaloneAliases))
+	for k, v := range r.standaloneAliases {
+		aliasesCopy[k] = v
+	}
+
+	sortPoolDefinitions(poolsList)
+
+	state := RegistryState{
+		Version:           1,
+		UpdatedAt:         time.Now().UTC().Format(time.RFC3339),
+		Pools:             poolsList,
+		StandaloneAliases: aliasesCopy,
+	}
+
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal state: %w", err)
+	}
+
+	dir := filepath.Dir(r.filePath)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("create state dir %s: %w", dir, err)
+		}
+	}
+
+	tmpFile := fmt.Sprintf("%s.tmp.%d", r.filePath, time.Now().UnixNano())
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return fmt.Errorf("write temp state %s: %w", tmpFile, err)
+	}
+
+	if err := os.Rename(tmpFile, r.filePath); err != nil {
+		_ = os.Remove(tmpFile)
+		return fmt.Errorf("rename temp state to %s: %w", r.filePath, err)
+	}
 	return nil
 }
 
