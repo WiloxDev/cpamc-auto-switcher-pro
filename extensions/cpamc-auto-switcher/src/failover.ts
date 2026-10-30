@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { resolveCandidateBaseUrls, resolveCpamcBaseUrl } from "./provider.js";
+import { getRotationPairForModelSync } from "./store.js";
 
 const TIMEOUT_MS = 15_000;
 const TERMINAL_STATUSES = new Set([
@@ -348,46 +349,74 @@ export function initFailoverHook(pi: ExtensionAPI, onAlert?: () => void): void {
 			consecutiveAutoRecoveries = 0;
 		}
 
-		if (message?.stopReason === "error" && isRateLimitOrNetworkError(message?.errorMessage)) {
-			onAlert?.();
-			schedule(ctx, "turn network/unexpected EOF error", true);
+		if (message?.stopReason === "error") {
+			const errMsg = message?.errorMessage || "";
+			const activeModel = ctx?.model;
+			const isStandalone = activeModel?.id
+				? (getRotationPairForModelSync(activeModel.id, activeModel.provider || "cpamc")?.isNativeReadOnly ?? false)
+				: false;
 
-			// Blindaje de Tokens contra Loops Infinitos de Reanudación:
-			// Si ya se intentó recuperar consecutivamente sin éxito (máx 2 reintentos),
-			// no seguir inyectando turnos ciegos que quemen miles de tokens de contexto.
-			if (consecutiveAutoRecoveries >= 2) {
-				notify(
-					ctx,
-					"🛑 Límite de auto-recuperaciones consecutivas alcanzado para proteger tu presupuesto de tokens. Revisa la conectividad de CPAMC.",
-					"error",
-				);
+			// Si es una cuenta fija (Standalone), no tiene reservas de failover.
+			// Emitir advertencia directa y NO ejecutar rotación ni inyectar reanudación ciega.
+			if (isStandalone) {
+				if (isRateLimitOrNetworkError(errMsg)) {
+					notify(
+						ctx,
+						`⚠️ Error en cuenta fija (${activeModel.id}): Cuota o conectividad agotada. Sin rotación virtual disponible.`,
+						"warning",
+					);
+				} else if (AUTH_CONFIG_ERROR_PATTERN.test(errMsg)) {
+					notify(
+						ctx,
+						`🛑 Error de autenticación en cuenta fija (${activeModel.id}): API key o cuenta inválida en el proveedor upstream.`,
+						"error",
+					);
+				}
 				consecutiveAutoRecoveries = 0;
 				return;
 			}
 
-			consecutiveAutoRecoveries++;
-			lastRecoveryTimestamp = now;
+			if (isRateLimitOrNetworkError(errMsg)) {
+				onAlert?.();
+				schedule(ctx, "turn network/unexpected EOF error", true);
 
-			notify(
-				ctx,
-				`⚡ Microcorte de streaming detectado (intento ${consecutiveAutoRecoveries}/2). Rotando cuenta y auto-reanudando agente...`,
-				"warning",
-			);
+				// Blindaje de Tokens contra Loops Infinitos de Reanudación:
+				// Si ya se intentó recuperar consecutivamente sin éxito (máx 2 reintentos),
+				// no seguir inyectando turnos ciegos que quemen miles de tokens de contexto.
+				if (consecutiveAutoRecoveries >= 2) {
+					notify(
+						ctx,
+						"🛑 Límite de auto-recuperaciones consecutivas alcanzado para proteger tu presupuesto de tokens. Revisa la conectividad de CPAMC.",
+						"error",
+					);
+					consecutiveAutoRecoveries = 0;
+					return;
+				}
 
-			// Compactar posibles outputs voluminosos de herramientas para ahorrar hasta 90% de tokens de entrada
-			const compactHint = compactToolResultsForRecovery(toolResults);
+				consecutiveAutoRecoveries++;
+				lastRecoveryTimestamp = now;
 
-			return {
-				entries: [
-					{
-						type: "custom_message",
-						customType: "auto-recovery-prompt",
-						content: `[Auto Switcher Pro · Auto-Recuperación] Se detectó una interrupción de conexión o fin inesperado de flujo. Continúa directamente desde la última acción planificada.${compactHint}`,
-						display: false,
-					},
-				],
-				continue: true,
-			};
+				notify(
+					ctx,
+					`⚡ Microcorte de streaming detectado (intento ${consecutiveAutoRecoveries}/2). Rotando cuenta y auto-reanudando agente...`,
+					"warning",
+				);
+
+				// Compactar posibles outputs voluminosos de herramientas para ahorrar hasta 90% de tokens de entrada
+				const compactHint = compactToolResultsForRecovery(toolResults);
+
+				return {
+					entries: [
+						{
+							type: "custom_message",
+							customType: "auto-recovery-prompt",
+							content: `[Auto Switcher Pro · Auto-Recuperación] Se detectó una interrupción de conexión o fin inesperado de flujo. Continúa directamente desde la última acción planificada.${compactHint}`,
+							display: false,
+						},
+					],
+					continue: true,
+				};
+			}
 		}
 
 		// Si el turno concluyó con éxito, limpiar el contador de recuperaciones
