@@ -855,26 +855,46 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 			handler: handleIncidentCommand,
 		});
 		(pi as any).registerCommand("wilox", {
-			description: "Community (WiloxDev): Alterna el sidebar entre modo Compacto (38 cols) y Estándar (50 cols) o usa '/wilox 38|50'",
+			description: "WiloxDev Suite: Alterna entre Sidebar Compacto (38 cols) y Estándar (50 cols), o ejecuta '/wilox suite' para aplicar defaults óptimos",
 			handler: async (args: string, ctx: ExtensionContext) => {
 				const current = readWiloxSettings();
 				const arg = args ? args.trim().toLowerCase() : "";
-				let target = current.sidebarWidth === 38 ? 50 : 38;
+
+				if (arg === "suite" || arg === "defaults" || arg === "reset") {
+					const { applyWiloxDevOptimalDefaults } = await import("./src/wilox-layout-manager.js");
+					applyWiloxDevOptimalDefaults();
+					if (ctx?.hasUI) {
+						ctx.ui.notify?.("⚡ WiloxDev Suite: Configuración recomendada aplicada de golpe.", "info");
+					}
+					return;
+				}
+
+				if (arg === "zen") {
+					const nextZen = !current.scanner.zenMode;
+					writeWiloxSettings({ scanner: { ...current.scanner, zenMode: nextZen } });
+					const statusText = nextZen ? "🌸 Zen Mode ACTIVATED (animations disabled)" : "⚡ Dynamic Mode ACTIVATED (animations enabled)";
+					if (ctx?.hasUI) ctx.ui.notify?.(statusText, "info");
+					return;
+				}
+
+				let target = current.sidebar.width === 38 ? 50 : 38;
 				if (arg === "38" || arg === "compact" || arg === "on") target = 38;
 				if (arg === "50" || arg === "standard" || arg === "default" || arg === "off") target = 50;
 
 				writeWiloxSettings({
-					sidebarWidth: target,
-					sidebarBreakpoint: target <= 38 ? 115 : 140,
-					gap: target <= 38 ? 2 : 3,
+					sidebar: {
+						width: target,
+						breakpoint: target <= 38 ? 115 : 140,
+						gap: target <= 38 ? 2 : 3,
+					},
 				});
 				syncSidebarLayout(target);
 
-				const label = target === 38 ? "Compacto (38 cols, ON)" : "Estándar (50 cols, OFF)";
+				const label = target === 38 ? "Compacto (38 cols)" : "Estándar (50 cols)";
 				if (ctx?.hasUI) {
-					ctx.ui.notify?.(`🌟 Community (WiloxDev): Sidebar configurado a ${label}. Se aplicará en el próximo arranque o recarga.`, "info");
+					ctx.ui.notify?.(`🌟 WiloxDev: Sidebar configurado a ${label}.`, "info");
 				} else {
-					console.log(`Community (WiloxDev): Sidebar configurado a ${label}`);
+					console.log(`WiloxDev: Sidebar configurado a ${label}`);
 				}
 			},
 		});

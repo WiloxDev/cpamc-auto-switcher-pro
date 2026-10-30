@@ -1,70 +1,155 @@
-import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
-export interface WiloxSettings {
-	schema: "wiloxdev.settings/v1";
-	sidebarWidth: number;
-	sidebarBreakpoint: number;
-	gap: number;
+export interface WiloxUnifiedSettings {
+	schema: "wiloxdev.unified/v1";
+	ui: {
+		lastExpandedModule: string | null;
+	};
+	sidebar: {
+		width: number;
+		breakpoint: number;
+		gap: number;
+	};
+	scanner: {
+		username: string;
+		zenMode: boolean;
+		showWorkingContext: boolean;
+		showContextInIdle: boolean;
+		showWorkingDuration: boolean;
+		showCompactionCount: boolean;
+	};
 }
 
-const DEFAULT_SETTINGS: WiloxSettings = {
-	schema: "wiloxdev.settings/v1",
-	sidebarWidth: 38,
-	sidebarBreakpoint: 115,
-	gap: 2,
+const DEFAULT_SETTINGS: WiloxUnifiedSettings = {
+	schema: "wiloxdev.unified/v1",
+	ui: {
+		lastExpandedModule: "sidebar",
+	},
+	sidebar: {
+		width: 38,
+		breakpoint: 115,
+		gap: 2,
+	},
+	scanner: {
+		username: "Wilox",
+		zenMode: false,
+		showWorkingContext: true,
+		showContextInIdle: true,
+		showWorkingDuration: true,
+		showCompactionCount: true,
+	},
 };
 
 const COMMUNITY_RAIL_SLOT = Symbol.for("gentle-pi.community.rail-width");
-const globalState = globalThis as typeof globalThis & { [COMMUNITY_RAIL_SLOT]?: number };
+const COMMUNITY_REGISTRY_SLOT = Symbol.for("gentle-pi.community.wiloxdev.registry");
+const COMMUNITY_EXPANDED_SLOT = Symbol.for("gentle-pi.community.wiloxdev.expanded");
 
-export function getWiloxSettingsDir(): string {
-	const candidates = [
-		join(homedir(), ".pi", "gentle-shell"),
-		join(homedir(), ".gentle-shell"),
-		join(homedir(), ".pi", "agent"),
-	];
-	for (const dir of candidates) {
-		if (existsSync(dir)) return dir;
-	}
-	const fallback = join(homedir(), ".pi", "gentle-shell");
-	try {
-		mkdirSync(fallback, { recursive: true });
-	} catch {
-		// Ignored
-	}
-	return fallback;
+const globalState = globalThis as typeof globalThis & {
+	[COMMUNITY_RAIL_SLOT]?: number;
+	[COMMUNITY_REGISTRY_SLOT]?: Map<string, WiloxCommunityModule>;
+	[COMMUNITY_EXPANDED_SLOT]?: string | null;
+};
+
+export interface WiloxCommunityRow {
+	id: string;
+	label: () => string;
+	preview: () => { title: string; sample: string };
+	action: (inline?: any) => void | Promise<void>;
 }
 
-export function getWiloxSettingsPath(): string {
-	return join(getWiloxSettingsDir(), "wilox-settings.json");
-}
-
-export function readWiloxSettings(): WiloxSettings {
-	const path = getWiloxSettingsPath();
-	try {
-		if (existsSync(path)) {
-			const data = JSON.parse(readFileSync(path, "utf8"));
-			if (data && typeof data.sidebarWidth === "number") {
-				return { ...DEFAULT_SETTINGS, ...data };
-			}
-		}
-	} catch {
-		// Fallback to default
-	}
-	return { ...DEFAULT_SETTINGS };
+export interface WiloxCommunityModule {
+	id: string;
+	title: string;
+	summary: () => string;
+	order?: number;
+	rows: WiloxCommunityRow[];
 }
 
 /**
- * Escritura Atómica Crash-Safe (patrón Gentle Shell: tmp + renameSync con mode 0o600)
+ * Directorio unificado estándar POSIX para WiloxDev
  */
-export function writeWiloxSettings(settings: Partial<WiloxSettings>): WiloxSettings {
+export function getWiloxUnifiedConfigDir(): string {
+	const dir = join(homedir(), ".config", "wiloxdev");
+	if (!existsSync(dir)) {
+		try {
+			mkdirSync(dir, { recursive: true });
+		} catch {}
+	}
+	return dir;
+}
+
+export function getWiloxUnifiedConfigPath(): string {
+	return join(getWiloxUnifiedConfigDir(), "settings.json");
+}
+
+/**
+ * Lee la configuración unificada migrando limpiamente desde archivos antiguos si existen
+ */
+export function readWiloxSettings(): WiloxUnifiedSettings {
+	const path = getWiloxUnifiedConfigPath();
+	let current: WiloxUnifiedSettings = structuredClone(DEFAULT_SETTINGS);
+
+	// 1. Intentar leer almacén unificado
+	if (existsSync(path)) {
+		try {
+			const data = JSON.parse(readFileSync(path, "utf8"));
+			if (data && data.schema === "wiloxdev.unified/v1") {
+				return {
+					...current,
+					...data,
+					ui: { ...current.ui, ...(data.ui || {}) },
+					sidebar: { ...current.sidebar, ...(data.sidebar || {}) },
+					scanner: { ...current.scanner, ...(data.scanner || {}) },
+				};
+			}
+		} catch {}
+	}
+
+	// 2. Migración transparente de ~/.pi/gentle-shell/wilox-settings.json si existe
+	const legacySidebarPath = join(homedir(), ".pi", "gentle-shell", "wilox-settings.json");
+	if (existsSync(legacySidebarPath)) {
+		try {
+			const data = JSON.parse(readFileSync(legacySidebarPath, "utf8"));
+			if (data?.sidebarWidth) {
+				current.sidebar.width = data.sidebarWidth;
+				current.sidebar.breakpoint = data.sidebarBreakpoint || (data.sidebarWidth <= 38 ? 115 : 140);
+				current.sidebar.gap = data.gap || (data.sidebarWidth <= 38 ? 2 : 3);
+			}
+		} catch {}
+	}
+
+	// 3. Migración transparente de ~/.scanner-chatrc.json si existe
+	const legacyScannerPath = join(homedir(), ".scanner-chatrc.json");
+	if (existsSync(legacyScannerPath)) {
+		try {
+			const data = JSON.parse(readFileSync(legacyScannerPath, "utf8"));
+			if (data && typeof data === "object") {
+				current.scanner = { ...current.scanner, ...data };
+			}
+		} catch {}
+	}
+
+	return current;
+}
+
+/**
+ * Escritura Atómica Crash-Safe (POSIX renameSync sobre archivo temporal con mode 0o600)
+ */
+export function writeWiloxSettings(patch: Partial<WiloxUnifiedSettings>): WiloxUnifiedSettings {
 	const current = readWiloxSettings();
-	const updated: WiloxSettings = { ...current, ...settings };
-	const dir = getWiloxSettingsDir();
-	const path = getWiloxSettingsPath();
+	const updated: WiloxUnifiedSettings = {
+		...current,
+		...patch,
+		ui: { ...current.ui, ...(patch.ui || {}) },
+		sidebar: { ...current.sidebar, ...(patch.sidebar || {}) },
+		scanner: { ...current.scanner, ...(patch.scanner || {}) },
+	};
+
+	const dir = getWiloxUnifiedConfigDir();
+	const path = getWiloxUnifiedConfigPath();
 	const temp = `${path}.${randomUUID()}.tmp`;
 
 	try {
@@ -72,14 +157,35 @@ export function writeWiloxSettings(settings: Partial<WiloxSettings>): WiloxSetti
 		writeFileSync(temp, JSON.stringify(updated, null, 2) + "\n", { mode: 0o600 });
 		renameSync(temp, path);
 	} catch (err) {
-		try { unlinkSync(temp); } catch { /* Ignore */ }
-		console.error("[WiloxDev] Error guardando wilox-settings:", err);
+		try { unlinkSync(temp); } catch {}
+		console.error("[WiloxDev] Error guardando settings unificados:", err);
 	}
 
-	// Sincronizar en memoria de inmediato para reactividad en caliente
-	if (typeof updated.sidebarWidth === "number") {
-		globalState[COMMUNITY_RAIL_SLOT] = updated.sidebarWidth;
-	}
+	// Sincronizar en memoria
+	globalState[COMMUNITY_RAIL_SLOT] = updated.sidebar.width;
+	globalState[COMMUNITY_EXPANDED_SLOT] = updated.ui.lastExpandedModule;
+
+	// Sincronizar espejos legacy para retrocompatibilidad absoluta
+	try {
+		const legacySidebarPath = join(homedir(), ".pi", "gentle-shell", "wilox-settings.json");
+		const legacySidebarDir = join(homedir(), ".pi", "gentle-shell");
+		mkdirSync(legacySidebarDir, { recursive: true });
+		const tmpSidebar = `${legacySidebarPath}.${randomUUID()}.tmp`;
+		writeFileSync(tmpSidebar, JSON.stringify({
+			schema: "wiloxdev.settings/v1",
+			sidebarWidth: updated.sidebar.width,
+			sidebarBreakpoint: updated.sidebar.breakpoint,
+			gap: updated.sidebar.gap,
+		}, null, 2) + "\n", { mode: 0o600 });
+		renameSync(tmpSidebar, legacySidebarPath);
+	} catch {}
+
+	try {
+		const legacyScannerPath = join(homedir(), ".scanner-chatrc.json");
+		const tmpScanner = `${legacyScannerPath}.${randomUUID()}.tmp`;
+		writeFileSync(tmpScanner, JSON.stringify(updated.scanner, null, 2) + "\n", { mode: 0o600 });
+		renameSync(tmpScanner, legacyScannerPath);
+	} catch {}
 
 	return updated;
 }
@@ -89,17 +195,266 @@ export function getActiveRailWidth(): number {
 		return globalState[COMMUNITY_RAIL_SLOT]!;
 	}
 	const settings = readWiloxSettings();
-	globalState[COMMUNITY_RAIL_SLOT] = settings.sidebarWidth;
-	return settings.sidebarWidth;
+	globalState[COMMUNITY_RAIL_SLOT] = settings.sidebar.width;
+	return settings.sidebar.width;
 }
 
 export function setActiveRailWidth(width: number): void {
 	const safeWidth = width <= 38 ? 38 : 50;
 	writeWiloxSettings({
-		sidebarWidth: safeWidth,
-		sidebarBreakpoint: safeWidth <= 38 ? 115 : 140,
-		gap: safeWidth <= 38 ? 2 : 3,
+		sidebar: {
+			width: safeWidth,
+			breakpoint: safeWidth <= 38 ? 115 : 140,
+			gap: safeWidth <= 38 ? 2 : 3,
+		},
 	});
+}
+
+export function getLastExpandedModule(): string | null {
+	if (typeof globalState[COMMUNITY_EXPANDED_SLOT] !== "undefined") {
+		return globalState[COMMUNITY_EXPANDED_SLOT] ?? null;
+	}
+	const settings = readWiloxSettings();
+	globalState[COMMUNITY_EXPANDED_SLOT] = settings.ui.lastExpandedModule;
+	return settings.ui.lastExpandedModule;
+}
+
+export function setLastExpandedModule(moduleId: string | null): void {
+	globalState[COMMUNITY_EXPANDED_SLOT] = moduleId;
+	writeWiloxSettings({
+		ui: { lastExpandedModule: moduleId },
+	});
+}
+
+/**
+ * Registro de Módulos WiloxDev en el bus global en memoria
+ */
+export function registerCommunityModule(module: WiloxCommunityModule): void {
+	const registry = globalState[COMMUNITY_REGISTRY_SLOT] ??= new Map<string, WiloxCommunityModule>();
+	registry.set(module.id, module);
+}
+
+/**
+ * Preset "WiloxDev Suite" de 1 solo clic (One-Click Setup)
+ */
+export function applyWiloxDevOptimalDefaults(): void {
+	writeWiloxSettings({
+		sidebar: {
+			width: 38,
+			breakpoint: 115,
+			gap: 2,
+		},
+		scanner: {
+			username: "Wilox",
+			zenMode: false,
+			showWorkingContext: true,
+			showContextInIdle: true,
+			showWorkingDuration: true,
+			showCompactionCount: true,
+		},
+	});
+	syncSidebarLayout(38);
+}
+
+/**
+ * Módulo 1: Sidebar Geometry con terminología clara
+ */
+function registerSidebarModule(): void {
+	registerCommunityModule({
+		id: "sidebar",
+		title: "Sidebar Geometry",
+		order: 10,
+		summary: () => `${getActiveRailWidth()} cols · ${getActiveRailWidth() <= 38 ? "Compact" : "Standard"}`,
+		rows: [
+			{
+				id: "sidebar-toggle",
+				label: () => getActiveRailWidth() === 38
+					? "Width: [38 cols · Compact] ➔ Enter to switch to [50 cols · Standard]"
+					: "Width: [50 cols · Standard] ➔ Enter to switch to [38 cols · Compact]",
+				preview: () => ({
+					title: "WiloxDev · Sidebar Geometry",
+					sample: getActiveRailWidth() === 38
+						? "[Compact: 38 cols] · Optimizes horizontal terminal space · Expands chat transcript width"
+						: "[Standard: 50 cols] · Original Gentle Shell rail dimensions",
+				}),
+				action: () => {
+					const nextW = getActiveRailWidth() === 38 ? 50 : 38;
+					setActiveRailWidth(nextW);
+				},
+			},
+			{
+				id: "sidebar-preset",
+				label: () => `Layout preset: ${getActiveRailWidth() === 38 ? "Compact (38 cols, 2 gap, 115 bp)" : "Standard (50 cols, 3 gap, 140 bp)"}`,
+				preview: () => ({
+					title: "WiloxDev · Sidebar Geometry",
+					sample: getActiveRailWidth() === 38
+						? "Compact preset: activates on terminals >= 115 cols, rail width 38, gap 2."
+						: "Standard preset: activates on terminals >= 140 cols, rail width 50, gap 3.",
+				}),
+				action: () => {
+					const nextW = getActiveRailWidth() === 38 ? 50 : 38;
+					setActiveRailWidth(nextW);
+				},
+			},
+		],
+	});
+}
+
+/**
+ * Módulo 2: Chat Scanner & Working Comet
+ */
+function registerChatScannerModule(): void {
+	registerCommunityModule({
+		id: "chat-scanner",
+		title: "Chat Scanner & Working Comet",
+		order: 20,
+		summary: () => {
+			const s = readWiloxSettings().scanner;
+			return `${s.username} · ${s.zenMode ? "Zen Mode" : "Dynamic"}`;
+		},
+		rows: [
+			{
+				id: "scanner-badge-name",
+				label: () => {
+					const s = readWiloxSettings().scanner;
+					return `Badge Identity: [${s.username}] ➔ Enter to change`;
+				},
+				preview: () => {
+					const s = readWiloxSettings().scanner;
+					return {
+						title: "Chat Scanner · Badge Identity",
+						sample: `[IDLE] ╭─ 󰣇 ${s.username} ✿ 󰣇 Ctx: 24% [ 󰁨×1 ] ─────────────────────────────────────────╮`,
+					};
+				},
+				action: async (inline?: any) => {
+					const s = readWiloxSettings().scanner;
+					if (inline && typeof inline.input === "function") {
+						const inputName = await inline.input({ prompt: "Badge Identity", value: s.username });
+						if (inputName && inputName.trim()) {
+							writeWiloxSettings({ scanner: { ...s, username: inputName.trim() } });
+						}
+					} else {
+						const nextName = s.username === "Wilox" ? "archlinux" : "Wilox";
+						writeWiloxSettings({ scanner: { ...s, username: nextName } });
+					}
+				},
+			},
+			{
+				id: "scanner-comet",
+				label: () => {
+					const s = readWiloxSettings().scanner;
+					return s.zenMode
+						? "Working Comet: [OFF · Zen Mode] ➔ Enter to enable"
+						: "Working Comet: [ON · 10 cols forward LTR] ➔ Enter to disable";
+				},
+				preview: () => ({
+					title: "Chat Scanner · Working Comet",
+					sample: `[WORKING] ╭── ◆●•∙· ✿ exploring… │ [2.8s] │ 󰁨×1 │ Context ▰▰▱▱▱▱▱▱ 24% ──────╮`,
+				}),
+				action: () => {
+					const s = readWiloxSettings().scanner;
+					writeWiloxSettings({ scanner: { ...s, zenMode: !s.zenMode } });
+				},
+			},
+			{
+				id: "scanner-context",
+				label: () => {
+					const s = readWiloxSettings().scanner;
+					const show = s.showWorkingContext && s.showContextInIdle;
+					return `Context Gauge: [${show ? "Visible · Full" : "Hidden"}] ➔ Enter to toggle`;
+				},
+				preview: () => ({
+					title: "Chat Scanner · Context Gauge",
+					sample: `Muestra el medidor visual de contexto y tokens en el marco del prompt.`,
+				}),
+				action: () => {
+					const s = readWiloxSettings().scanner;
+					const next = !(s.showWorkingContext && s.showContextInIdle);
+					writeWiloxSettings({
+						scanner: { ...s, showWorkingContext: next, showContextInIdle: next },
+					});
+				},
+			},
+			{
+				id: "scanner-duration",
+				label: () => {
+					const s = readWiloxSettings().scanner;
+					return `Duration Badge: [${s.showWorkingDuration ? "Visible [3.4s]" : "Hidden"}] ➔ Enter to toggle`;
+				},
+				preview: () => ({
+					title: "Chat Scanner · Duration Badge",
+					sample: `Muestra los segundos transcurridos en tiempo real durante la ejecución de tareas.`,
+				}),
+				action: () => {
+					const s = readWiloxSettings().scanner;
+					writeWiloxSettings({ scanner: { ...s, showWorkingDuration: !s.showWorkingDuration } });
+				},
+			},
+			{
+				id: "scanner-compaction",
+				label: () => {
+					const s = readWiloxSettings().scanner;
+					return `Compaction Badge: [${s.showCompactionCount ? "Visible [󰁨×n]" : "Hidden"}] ➔ Enter to toggle`;
+				},
+				preview: () => ({
+					title: "Chat Scanner · Compaction Badge",
+					sample: `Indica la cantidad de compactaciones realizadas en la sesión actual.`,
+				}),
+				action: () => {
+					const s = readWiloxSettings().scanner;
+					writeWiloxSettings({ scanner: { ...s, showCompactionCount: !s.showCompactionCount } });
+				},
+			},
+			{
+				id: "scanner-zen",
+				label: () => {
+					const s = readWiloxSettings().scanner;
+					return `Zen Mode: [${s.zenMode ? "Active (Quiet)" : "Inactive (Dynamic)"}] ➔ Enter to toggle`;
+				},
+				preview: () => ({
+					title: "Chat Scanner · Zen Mode",
+					sample: `Desactiva animaciones y cometas para ahorrar CPU o trabajar sin distracciones.`,
+				}),
+				action: () => {
+					const s = readWiloxSettings().scanner;
+					writeWiloxSettings({ scanner: { ...s, zenMode: !s.zenMode } });
+				},
+			},
+		],
+	});
+}
+
+/**
+ * Escáner de extensiones instaladas para auto-descubrimiento mediante package.json (Punto 2.1)
+ */
+export function autoDiscoverCommunityExtensions(): void {
+	const searchRoots = [
+		join(homedir(), ".pi", "gentle-shell", "extensions"),
+		join(homedir(), ".gentle-shell", "agent", "extensions"),
+		join(homedir(), ".pi", "agent", "extensions"),
+	];
+
+	for (const root of searchRoots) {
+		if (!existsSync(root)) continue;
+		try {
+			const entries = readdirSync(root, { withFileTypes: true });
+			for (const entry of entries) {
+				if (!entry.isDirectory()) continue;
+				const pkgPath = join(root, entry.name, "package.json");
+				if (!existsSync(pkgPath)) continue;
+				try {
+					const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+					if (pkg.wiloxCommunity && typeof pkg.wiloxCommunity === "object") {
+						const manifest = pkg.wiloxCommunity;
+						if (manifest.id && manifest.title && !globalState[COMMUNITY_REGISTRY_SLOT]?.has(manifest.id)) {
+							// Módulo descubierto por metadata
+							console.log(`[WiloxDev] Descubierto módulo de comunidad por metadata: ${manifest.id}`);
+						}
+					}
+				} catch {}
+			}
+		} catch {}
+	}
 }
 
 const LAYOUT_TARGET_FILES = [
@@ -136,9 +491,7 @@ function clearJitiCache(): void {
 			if (existsSync(dir)) {
 				rmSync(dir, { recursive: true, force: true });
 			}
-		} catch {
-			// Ignore
-		}
+		} catch {}
 	}
 }
 
@@ -147,13 +500,11 @@ function clearJitiCache(): void {
  */
 export function syncSidebarLayout(targetWidth?: number): boolean {
 	const settings = readWiloxSettings();
-	const width = targetWidth ?? settings.sidebarWidth;
+	const width = targetWidth ?? settings.sidebar.width;
 	const breakpoint = width <= 38 ? 115 : 140;
 	const gap = width <= 38 ? 2 : 3;
 
-	// Sincronizar slot en memoria
 	globalState[COMMUNITY_RAIL_SLOT] = width;
-
 	let modified = false;
 
 	for (const file of LAYOUT_TARGET_FILES) {
@@ -162,7 +513,6 @@ export function syncSidebarLayout(targetWidth?: number): boolean {
 			let content = readFileSync(file, "utf8");
 			let fileModified = false;
 
-			// Reemplazar SIDEBAR_BREAKPOINT
 			const breakpointPattern = /export const SIDEBAR_BREAKPOINT\s*=\s*\d+;/;
 			const expectedBreakpoint = `export const SIDEBAR_BREAKPOINT = ${breakpoint};`;
 			if (breakpointPattern.test(content)) {
@@ -173,7 +523,6 @@ export function syncSidebarLayout(targetWidth?: number): boolean {
 				}
 			}
 
-			// Reemplazar RAIL_WIDTH
 			const railWidthPattern = /const RAIL_WIDTH\s*=\s*\d+;/;
 			const expectedRailWidth = `const RAIL_WIDTH = ${width};`;
 			if (railWidthPattern.test(content)) {
@@ -184,7 +533,6 @@ export function syncSidebarLayout(targetWidth?: number): boolean {
 				}
 			}
 
-			// Reemplazar GAP
 			const gapPattern = /const GAP\s*=\s*\d+;/;
 			const expectedGap = `const GAP = ${gap};`;
 			if (gapPattern.test(content)) {
@@ -195,7 +543,6 @@ export function syncSidebarLayout(targetWidth?: number): boolean {
 				}
 			}
 
-			// Inyectar soporte para reactividad en vivo si no existe
 			if (!content.includes("COMMUNITY_RAIL_SLOT")) {
 				const injection = `
 const COMMUNITY_RAIL_SLOT = Symbol.for("gentle-pi.community.rail-width");
@@ -209,21 +556,6 @@ export function setCommunityRailWidth(width: number): void {
 }
 `;
 				content = content.replace("export const SIDEBAR_RAIL_COLUMNS = RAIL_WIDTH + GAP;", `export const SIDEBAR_RAIL_COLUMNS = RAIL_WIDTH + GAP;\n${injection}`);
-				fileModified = true;
-			}
-
-			// Asegurar que hstackHost use communityRailWidth dinámico
-			if (content.includes("const hstackHost:") && !content.includes("const currentRailBasis = communityRailWidth()")) {
-				content = content.replace(
-					/\[NODE\]:\s*\(\)\s*=>\s*\(\{\s*type:\s*"hstack",\s*gap:\s*GAP,\s*align:\s*"stretch",\s*entries:\s*\[\s*\{\s*component:\s*left,\s*basis:\s*0,\s*grow:\s*1,\s*shrink:\s*1,\s*minSize:\s*1\s*\},\s*\{\s*component:\s*scroll,\s*basis:\s*RAIL_WIDTH,\s*grow:\s*0,\s*shrink:\s*0,\s*minSize:\s*RAIL_WIDTH\s*\},/g,
-					`[NODE]: () => {
-					const currentRailBasis = communityRailWidth();
-					const currentGap = currentRailBasis <= 38 ? 2 : 3;
-					state.railColumns = currentRailBasis + currentGap;
-					return { type: "hstack", gap: currentGap, align: "stretch", entries: [
-						{ component: left, basis: 0, grow: 1, shrink: 1, minSize: 1 },
-						{ component: scroll, basis: currentRailBasis, grow: 0, shrink: 0, minSize: currentRailBasis },`
-				);
 				fileModified = true;
 			}
 
@@ -247,12 +579,12 @@ export function setCommunityRailWidth(width: number): void {
 const WILOX_CUSTOMIZE_MARKER = "/* WILOXDEV_CUSTOMIZE_SECTION_START */";
 
 /**
- * Inyecta la categoría Community con subcategoría WiloxDev en extensions/gentle-shell.ts de forma idempotente y atómica.
+ * Inyecta el Motor de Acordeón Dinámico puro en extensions/gentle-shell.ts
  */
 export function syncCustomizeCategory(): boolean {
 	let modified = false;
 
-	// 1. Asegurar tipo en visual-customize-view.ts
+	// 1. Asegurar tipos en visual-customize-view.ts
 	for (const file of CUSTOMIZE_VIEW_TARGET_FILES) {
 		if (!existsSync(file)) continue;
 		try {
@@ -264,76 +596,87 @@ export function syncCustomizeCategory(): boolean {
 				renameSync(temp, file);
 				modified = true;
 			}
-		} catch {
-			// Ignore
-		}
+		} catch {}
 	}
 
-	// 2. Inyectar bloque en extensions/gentle-shell.ts
+	// 2. Inyectar Motor de Acordeón 100% Dinámico
 	const injectionCode = `
 			${WILOX_CUSTOMIZE_MARKER}
 			category = "Community" as any;
-			const COMMUNITY_SLOT = Symbol.for("gentle-pi.community.rail-width");
-			const commState = globalThis as typeof globalThis & { [COMMUNITY_SLOT]?: number };
-			const getWiloxWidth = (): number => {
-				if (typeof commState[COMMUNITY_SLOT] === "number") return commState[COMMUNITY_SLOT]!;
-				try {
-					const p = "${getWiloxSettingsPath()}";
-					const w = JSON.parse(require("node:fs").readFileSync(p, "utf8")).sidebarWidth;
-					if (typeof w === "number") {
-						commState[COMMUNITY_SLOT] = w;
-						return w;
-					}
-				} catch {}
-				return 38;
+			const COMM_REGISTRY_SLOT = Symbol.for("gentle-pi.community.wiloxdev.registry");
+			const COMM_EXPANDED_SLOT = Symbol.for("gentle-pi.community.wiloxdev.expanded");
+			const commBus = globalThis as typeof globalThis & {
+				[COMM_REGISTRY_SLOT]?: Map<string, { id: string; title: string; order?: number; summary: () => string; rows: Array<{ id: string; label: () => string; preview: () => { title: string; sample: string }; action: (inline?: any) => void | Promise<void> }> }>;
+				[COMM_EXPANDED_SLOT]?: string | null;
 			};
-			const setWiloxWidth = (w: number): void => {
-				commState[COMMUNITY_SLOT] = w;
-				try {
-					const p = "${getWiloxSettingsPath()}";
-					const current = JSON.parse(require("node:fs").readFileSync(p, "utf8") || "{}");
-					current.sidebarWidth = w;
-					current.sidebarBreakpoint = w <= 38 ? 115 : 140;
-					current.gap = w <= 38 ? 2 : 3;
-					const tmp = p + "." + require("node:crypto").randomUUID() + ".tmp";
-					require("node:fs").writeFileSync(tmp, JSON.stringify(current, null, 2) + "\\n", { mode: 0o600 });
-					require("node:fs").renameSync(tmp, p);
-				} catch {}
-			};
-			add(
-				() => \`WiloxDev · Compact sidebar: \${getWiloxWidth() === 38 ? "ON (38 cols)" : "OFF (50 cols)"}\`,
-				"Sidebar layout preference updated.",
-				() => {
-					const nextW = getWiloxWidth() === 38 ? 50 : 38;
-					setWiloxWidth(nextW);
+			const commRegistry = commBus[COMM_REGISTRY_SLOT] ??= new Map();
+
+			// 1. Opción Maestra: Preset One-Click Setup
+			rows.push({
+				category,
+				label: () => "⚡ WiloxDev Suite: Apply Optimal Defaults (One-Click)",
+				preview: () => ({
+					title: "WiloxDev Suite · One-Click Setup",
+					sample: "Aplica de un golpe la configuración recomendada: Sidebar Compacto (38 cols) + Chat Scanner activo con cometa + Badge Wilox.",
+				}),
+				action: () => {
+					try {
+						const m = require("/home/wilox/.pi/gentle-shell/extensions/cpamc-auto-switcher/src/wilox-layout-manager.js");
+						m.applyWiloxDevOptimalDefaults();
+						ctx.ui.notify?.("⚡ WiloxDev Suite: Configuración recomendada aplicada con éxito.", "info");
+					} catch {}
 					renderHost?.invalidateSidebar?.();
 					renderHost?.requestRender();
 					requestCustomizeRender?.();
 				},
-				() => ({
-					title: "Community · WiloxDev",
-					sample: getWiloxWidth() === 38
-						? "[Compact rail: ON · 38 cols] · Optimizes horizontal terminal space · Expands conversation transcript width"
-						: "[Compact rail: OFF · 50 cols] · Standard Gentle Shell rail geometry",
-				})
-			);
-			add(
-				() => \`WiloxDev · Sidebar mode: \${getWiloxWidth() === 38 ? "Compact (38 cols) [current]" : "Standard (50 cols) [current]"}\`,
-				"Sidebar preset updated.",
-				() => {
-					const nextW = getWiloxWidth() === 38 ? 50 : 38;
-					setWiloxWidth(nextW);
-					renderHost?.invalidateSidebar?.();
-					renderHost?.requestRender();
-					requestCustomizeRender?.();
-				},
-				() => ({
-					title: "Community · WiloxDev",
-					sample: getWiloxWidth() === 38
-						? "Compact preset: 38 cols rail, 2 cols gap, breakpoint 115."
-						: "Standard preset: 50 cols rail, 3 cols gap, breakpoint 140.",
-				})
-			);
+			});
+
+			// 2. Despachador de Acordeón 100% Dinámico (itera commRegistry sin listas fijas)
+			const sortedModules = [...commRegistry.values()].sort((a, b) => (a.order || 50) - (b.order || 50));
+			for (const mod of sortedModules) {
+				const isExpanded = () => commBus[COMM_EXPANDED_SLOT] === mod.id;
+
+				// Cabecera de Carpeta de Acordeón
+				rows.push({
+					category,
+					label: () => isExpanded()
+						? \`▼ 📂 WiloxDev · \${mod.title} (\${mod.summary()}) ➔ [Press Enter to collapse]\`
+						: \`► 📁 WiloxDev · \${mod.title} (\${mod.summary()}) ➔ [Press Enter to expand]\`,
+					preview: () => ({
+						title: \`WiloxDev · \${mod.title}\`,
+						sample: isExpanded()
+							? \`[Módulo Desplegado] Pulsa Enter para contraer y ocultar sus opciones.\`
+							: \`[Módulo Contraído] Pulsa Enter para desplegar y ajustar sus opciones.\`,
+					}),
+					action: () => {
+						const nextState = isExpanded() ? null : mod.id;
+						commBus[COMM_EXPANDED_SLOT] = nextState;
+						try {
+							const m = require("/home/wilox/.pi/gentle-shell/extensions/cpamc-auto-switcher/src/wilox-layout-manager.js");
+							m.setLastExpandedModule(nextState);
+						} catch {}
+						renderHost?.invalidateSidebar?.();
+						renderHost?.requestRender();
+						requestCustomizeRender?.();
+					},
+				});
+
+				// Opciones hijas (visibles únicamente cuando el módulo está expandido)
+				for (const child of mod.rows) {
+					rows.push({
+						category,
+						visible: () => isExpanded(),
+						label: () => \`    • \${child.label()}\`,
+						preview: () => child.preview(),
+						action: async (inline: any) => {
+							await child.action(inline);
+							renderHost?.invalidateSidebar?.();
+							renderHost?.requestRender();
+							requestCustomizeRender?.();
+						},
+					});
+				}
+			}
 			/* WILOXDEV_CUSTOMIZE_SECTION_END */
 `;
 
@@ -361,7 +704,7 @@ export function syncCustomizeCategory(): boolean {
 				modified = true;
 			}
 		} catch (err) {
-			console.error(`[WiloxDev] Error inyectando categoría en ${file}:`, err);
+			console.error(`[WiloxDev] Error inyectando acordeón en ${file}:`, err);
 		}
 	}
 
@@ -378,7 +721,21 @@ export function initWiloxLayoutManager(): void {
 	try {
 		const settings = readWiloxSettings();
 		writeWiloxSettings(settings);
-		syncSidebarLayout(settings.sidebarWidth);
+
+		// 1. Restaurar último estado del acordeón en memoria
+		globalState[COMMUNITY_EXPANDED_SLOT] = settings.ui.lastExpandedModule;
+
+		// 2. Registrar módulos del ecosistema
+		registerSidebarModule();
+		registerChatScannerModule();
+
+		// 3. Auto-descubrimiento por package.json
+		autoDiscoverCommunityExtensions();
+
+		// 4. Sincronizar el layout
+		syncSidebarLayout(settings.sidebar.width);
+
+		// 5. Sincronizar el acordeón en /gentle:customize
 		syncCustomizeCategory();
 	} catch (err) {
 		console.error("[WiloxDev] Error inicializando WiloxLayoutManager:", err);
