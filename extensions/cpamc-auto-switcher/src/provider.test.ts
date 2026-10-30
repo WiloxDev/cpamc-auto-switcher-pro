@@ -30,6 +30,18 @@ register("data:text/javascript," + encodeURIComponent(loaderCode));
 
 const { isCleanIncludedModel, buildPoolLabelMap, reconcileActivePoolFacades, initDynamicProvider, resolveManagementKeyWithDiagnostics, resolveCandidateBaseUrls, resolveCpamcBaseUrl, resolveCpamcSettings, buildPendingAccountsPlaceholderModel, syncStandaloneSubproviders } = await import("./provider.js");
 
+const mockFilterData = {
+    validPrefixes: new Set(["agy", "agy2"]),
+    prefixExclusions: new Map([["agy", new Set<string>()], ["agy2", new Set<string>()]]),
+    familyActiveLeaderPrefix: new Map([["gemini_pure", "agy"]]),
+    prefixToFamily: new Map([["agy", "gemini_pure"], ["agy2", "gemini_pure"]]),
+    activePoolFamilies: new Set(["gemini_pure"]),
+    poolAssignedPrefixes: new Set(["agy", "agy2"]),
+    activeBareProviders: new Set(["antigravity"]),
+    bareExclusions: new Set<string>(),
+    registeredPoolBases: new Set(["agy", "agy2"]),
+};
+
 describe("Dynamic Provider Filtering & Granular Coexistence", () => {
     it("evaluates universal base URL resolution cascade (env, custom port, fallbacks)", () => {
         const origBase = process.env.CLIPROXYAPI_BASE_URL;
@@ -58,18 +70,6 @@ describe("Dynamic Provider Filtering & Granular Coexistence", () => {
             else delete process.env.CPAMC_URL;
         }
     });
-
-    const mockFilterData = {
-        validPrefixes: new Set(["agy", "agy2"]),
-        prefixExclusions: new Map([["agy", new Set<string>()], ["agy2", new Set<string>()]]),
-        familyActiveLeaderPrefix: new Map([["gemini_pure", "agy"]]),
-        prefixToFamily: new Map([["agy", "gemini_pure"], ["agy2", "gemini_pure"]]),
-        activePoolFamilies: new Set(["gemini_pure"]),
-        poolAssignedPrefixes: new Set(["agy", "agy2"]),
-        activeBareProviders: new Set(["antigravity"]),
-        bareExclusions: new Set<string>(),
-        registeredPoolBases: new Set(["agy", "agy2"]),
-    };
 
     it("includes canonical pool clean facades (Pool-01-gemini, Pool-02-gemini)", () => {
         assert.equal(isCleanIncludedModel("Pool-01-gemini", mockFilterData), true);
