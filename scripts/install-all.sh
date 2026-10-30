@@ -734,6 +734,14 @@ install_extension() {
                 fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
             " "$settings_file" "$TARGET_URL" "$eff_key" "$TARGET_KEY" 2>/dev/null || true
         fi
+
+        # Configuración inicial de estilo de QuotaCard (Esencial Default vs Pro Pestañas)
+        local pref_file="${agent_home}/cpamc-preferences.json"
+        if [ ! -f "$pref_file" ]; then
+            echo '{"viewMode":"essential","activeTab":"quota"}' > "$pref_file"
+            echo -e "    ${CYAN}[i] QuotaCard inicializada en Modo Esencial / Compacto (Default).${RESET}"
+            echo -e "        ↳ ${ITALIC}Puedes alternar en cualquier momento en caliente con /cpamc-card${RESET}"
+        fi
     done
 
     # Exportar variables en ~/.bashrc si no existen para máxima compatibilidad con procesos shell

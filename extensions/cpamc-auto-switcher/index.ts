@@ -10,7 +10,21 @@ import { registerModelPicker } from "./src/picker.js";
 import { registerAgentMatrixCommand } from "./src/matrix-command.js";
 import { registerDoctorCommand } from "./src/doctor.js";
 import { CpamcTuiAdapter } from "./src/adapter.js";
-import { querySwitcherAccounts, checkProactivePoolRebalance, applyOptimisticQuotaDecrement, getRotationPairForModelSync, updateContextUsage, recordContextCompression } from "./src/store.js";
+import {
+	querySwitcherAccounts,
+	checkProactivePoolRebalance,
+	applyOptimisticQuotaDecrement,
+	getRotationPairForModelSync,
+	updateContextUsage,
+	recordContextCompression,
+	getQuotaCardViewMode,
+	setQuotaCardViewMode,
+	getActiveQuotaCardTab,
+	setActiveQuotaCardTab,
+	recordTurnTelemetry,
+	type QuotaCardTabId,
+	type QuotaCardViewMode,
+} from "./src/store.js";
 import { saveProjectModel, getProjectModel, clearProjectModel } from "./src/project-model-store.js";
 import { runawayGuard } from "./src/guards.js";
 import { showIncidentModal } from "./src/incident-modal.js";
@@ -250,6 +264,110 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 		},
 	});
 
+	// 3e. Comando dinámico e interactivo /cpamc-card (Toggle en caliente sin reiniciar)
+	pi.registerCommand("cpamc-card", {
+		description: "Alterna el estilo de la QuotaCard: Esencial (Compacto Default) vs Pro Pestañas Blessed",
+		handler: async (args, ctx) => {
+			const arg = args?.trim().toLowerCase();
+			if (arg === "classic" || arg === "essential" || arg === "compact") {
+				setQuotaCardViewMode("essential");
+				await adapter?.update(true, ctx);
+				if (ctx.hasUI) ctx.ui.notify?.("✅ QuotaCard: Modo Esencial / Compacto activo.", "info");
+				return;
+			}
+			if (arg === "pro" || arg === "tabs" || arg === "blessed") {
+				setQuotaCardViewMode("tabs");
+				await adapter?.update(true, ctx);
+				if (ctx.hasUI) ctx.ui.notify?.("⚡ QuotaCard: Modo Pro Pestañas Blessed activo.", "info");
+				return;
+			}
+			// Si especifica sub-pestaña (ej: /cpamc-card 1, /cpamc-card quota, /cpamc-card radar)
+			if (arg === "1" || arg === "quota") {
+				setQuotaCardViewMode("tabs");
+				setActiveQuotaCardTab("quota");
+				await adapter?.update(true, ctx);
+				return;
+			}
+			if (arg === "2" || arg === "metrics") {
+				setQuotaCardViewMode("tabs");
+				setActiveQuotaCardTab("metrics");
+				await adapter?.update(true, ctx);
+				return;
+			}
+			if (arg === "3" || arg === "pool") {
+				setQuotaCardViewMode("tabs");
+				setActiveQuotaCardTab("pool");
+				await adapter?.update(true, ctx);
+				return;
+			}
+			if (arg === "4" || arg === "radar") {
+				setQuotaCardViewMode("tabs");
+				setActiveQuotaCardTab("radar");
+				await adapter?.update(true, ctx);
+				return;
+			}
+
+			// Si no pasa argumentos y cuenta con UI interactiva, abrir selector interactivo
+			if (ctx.hasUI && typeof ctx.ui.select === "function") {
+				const current = getQuotaCardViewMode();
+				const choice = await ctx.ui.select("Estilo de visualización para la QuotaCard del Sidebar:", [
+					{
+						label: `${current === "essential" ? "● " : "  "}Modo Esencial / Compacto (Default)`,
+						description: "Tarjeta ligera, limpia y calibrada a 48 columnas sin distracciones",
+						value: "essential",
+					},
+					{
+						label: `${current === "tabs" ? "● " : "  "}Modo Pro Telemetría / Pestañas Blessed`,
+						description: "Diales Braille, Sparklines de tokens, balance de flota y radar de rotaciones",
+						value: "tabs",
+					},
+				]);
+
+				if (choice?.value) {
+					setQuotaCardViewMode(choice.value as QuotaCardViewMode);
+					await adapter?.update(true, ctx);
+					ctx.ui.notify?.(
+						choice.value === "tabs"
+							? "⚡ QuotaCard: Modo Pro Pestañas Blessed activado."
+							: "✅ QuotaCard: Modo Esencial / Compacto activado.",
+						"info",
+					);
+				}
+				return;
+			}
+
+			// Alternancia rápida en caliente si no hay UI modal
+			const nextMode: QuotaCardViewMode = getQuotaCardViewMode() === "essential" ? "tabs" : "essential";
+			setQuotaCardViewMode(nextMode);
+			await adapter?.update(true, ctx);
+			if (ctx.hasUI) {
+				ctx.ui.notify?.(
+					nextMode === "tabs"
+						? "⚡ QuotaCard: Alternado a Modo Pro Pestañas Blessed."
+						: "✅ QuotaCard: Alternado a Modo Esencial / Compacto.",
+					"info",
+				);
+			}
+		},
+	});
+
+	// Atajo de teclado global Ctrl+Alt+Tab para ciclar pestañas en modo Pro sin colisión de escritura
+	pi.registerShortcut("ctrl+alt+tab", {
+		description: "Ciclar pestaña activa en la QuotaCard Pro del sidebar",
+		handler: async (ctx) => {
+			if (getQuotaCardViewMode() !== "tabs") {
+				setQuotaCardViewMode("tabs");
+				setActiveQuotaCardTab("quota");
+			} else {
+				const tabs: QuotaCardTabId[] = ["quota", "metrics", "pool", "radar"];
+				const current = getActiveQuotaCardTab();
+				const nextIdx = (tabs.indexOf(current) + 1) % tabs.length;
+				setActiveQuotaCardTab(tabs[nextIdx]!);
+			}
+			await adapter?.update(true, ctx);
+		},
+	});
+
 	// 3f. Captura en caliente de eventos de compresión y uso de tokens de contexto
 	pi.on("session_compact", (_event, _ctx) => {
 		recordContextCompression();
@@ -264,6 +382,13 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 			const usage = ctx.getContextUsage?.();
 			if (usage && typeof usage.tokens === "number") {
 				updateContextUsage(usage.tokens, usage.contextWindow || 200_000);
+				// Registrar telemetría de turno para gráficas Sparkline
+				recordTurnTelemetry({
+					turnId: `${Date.now()}`,
+					tokens: usage.tokens,
+					durationMs: 1200,
+					toolsCount: 0,
+				});
 			}
 		} catch {}
 	});

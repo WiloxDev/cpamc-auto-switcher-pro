@@ -848,3 +848,171 @@ export async function getRotationPairForModel(modelId: string, provider: string)
 	await querySwitcherAccounts();
 	return getRotationPairForModelSync(modelId, provider);
 }
+
+// ============================================================================
+// TELEMETRÍA Y PREFERENCIAS BIMODALES DE QUOTACARD (ESENCIAL vs PRO PESTAÑAS)
+// ============================================================================
+
+export type QuotaCardViewMode = "essential" | "tabs";
+export type QuotaCardTabId = "quota" | "metrics" | "pool" | "radar";
+
+export interface QuotaCardTelemetryEvent {
+	timestamp: number;
+	type: "rotation" | "incident_mitigated" | "cooling" | "circuit_breaker" | "rebalance" | "info";
+	source: string;
+	message: string;
+	details?: string;
+}
+
+export interface QuotaTurnTelemetry {
+	turnId: string;
+	timestamp: number;
+	tokens: number;
+	durationMs: number;
+	toolsCount: number;
+}
+
+const PREF_FILE_NAME = "cpamc-preferences.json";
+
+function getPreferencesPath(): string {
+	const home = process.env.HOME || process.env.USERPROFILE || "";
+	return path.join(home, ".pi", "agent-wilox", PREF_FILE_NAME);
+}
+
+let activeViewMode: QuotaCardViewMode = "essential";
+let activeTabId: QuotaCardTabId = "quota";
+let smartPeekingUntil = 0;
+let smartPeekingPreviousTab: QuotaCardTabId = "quota";
+
+const turnTelemetryHistory: QuotaTurnTelemetry[] = [];
+const telemetryEventsHistory: QuotaCardTelemetryEvent[] = [];
+const MAX_TURN_HISTORY = 20;
+const MAX_EVENT_HISTORY = 40;
+
+/**
+ * Carga las preferencias de QuotaCard desde disco (~/.pi/agent-wilox/cpamc-preferences.json)
+ * sin bloquear ni arrojar excepciones si no existe.
+ */
+export function loadQuotaCardPreferences(): { viewMode: QuotaCardViewMode; activeTab: QuotaCardTabId } {
+	try {
+		const prefPath = getPreferencesPath();
+		if (fs.existsSync(prefPath)) {
+			const raw = fs.readFileSync(prefPath, "utf-8");
+			const parsed = JSON.parse(raw);
+			if (parsed.viewMode === "essential" || parsed.viewMode === "tabs") {
+				activeViewMode = parsed.viewMode;
+			}
+			if (parsed.activeTab === "quota" || parsed.activeTab === "metrics" || parsed.activeTab === "pool" || parsed.activeTab === "radar") {
+				activeTabId = parsed.activeTab;
+			}
+		}
+	} catch {
+		// Tolerancia ante fallos de disco; mantiene defaults en RAM
+	}
+	return { viewMode: activeViewMode, activeTab: activeTabId };
+}
+
+/**
+ * Guarda las preferencias de QuotaCard de manera atómica en disco y actualiza RAM.
+ */
+export function saveQuotaCardPreferences(prefs: { viewMode?: QuotaCardViewMode; activeTab?: QuotaCardTabId }): void {
+	if (prefs.viewMode) activeViewMode = prefs.viewMode;
+	if (prefs.activeTab) activeTabId = prefs.activeTab;
+
+	try {
+		const prefPath = getPreferencesPath();
+		const dir = path.dirname(prefPath);
+		if (!fs.existsSync(dir)) {
+			fs.mkdirSync(dir, { recursive: true });
+		}
+		const tmpPath = `${prefPath}.tmp-${Date.now()}`;
+		const payload = JSON.stringify({ viewMode: activeViewMode, activeTab: activeTabId }, null, 2);
+		fs.writeFileSync(tmpPath, payload, "utf-8");
+		fs.renameSync(tmpPath, prefPath);
+	} catch {
+		// Fallback silencioso en entornos restringidos de solo lectura
+	}
+}
+
+export function getQuotaCardViewMode(): QuotaCardViewMode {
+	return activeViewMode;
+}
+
+export function setQuotaCardViewMode(mode: QuotaCardViewMode): void {
+	activeViewMode = mode;
+	saveQuotaCardPreferences({ viewMode: mode });
+}
+
+export function getActiveQuotaCardTab(): QuotaCardTabId {
+	// Evaluar Smart Peeking temporal
+	if (smartPeekingUntil > Date.now()) {
+		return "radar";
+	}
+	return activeTabId;
+}
+
+export function setActiveQuotaCardTab(tab: QuotaCardTabId): void {
+	smartPeekingUntil = 0; // Desactivar peeking forzado si el usuario navega deliberadamente
+	activeTabId = tab;
+	saveQuotaCardPreferences({ activeTab: tab });
+}
+
+/**
+ * Activa Smart Peeking hacia la pestaña Radar por una duración dada (ej. 5000ms),
+ * guardando la pestaña previa para retornar automáticamente sin intervención del usuario.
+ */
+export function triggerSmartPeeking(durationMs = 5000): void {
+	if (activeViewMode !== "tabs") return;
+	if (smartPeekingUntil <= Date.now()) {
+		smartPeekingPreviousTab = activeTabId;
+	}
+	smartPeekingUntil = Date.now() + durationMs;
+}
+
+/**
+ * Registra métricas de consumo de un turno en RAM para alimentar los Sparklines y curvas temporales.
+ */
+export function recordTurnTelemetry(telemetry: Omit<QuotaTurnTelemetry, "timestamp">): void {
+	turnTelemetryHistory.push({
+		...telemetry,
+		timestamp: Date.now(),
+	});
+	if (turnTelemetryHistory.length > MAX_TURN_HISTORY) {
+		turnTelemetryHistory.shift();
+	}
+}
+
+export function getTurnTelemetryHistory(): readonly QuotaTurnTelemetry[] {
+	return turnTelemetryHistory;
+}
+
+/**
+ * Registra un evento en la bitácora viva del Radar de Rotaciones y activa Smart Peeking si es crítico.
+ */
+export function recordTelemetryEvent(event: Omit<QuotaCardTelemetryEvent, "timestamp">): void {
+	const entry: QuotaCardTelemetryEvent = {
+		...event,
+		timestamp: Date.now(),
+	};
+	telemetryEventsHistory.push(entry);
+	if (telemetryEventsHistory.length > MAX_EVENT_HISTORY) {
+		telemetryEventsHistory.shift();
+	}
+
+	if (event.type === "incident_mitigated" || event.type === "circuit_breaker") {
+		triggerSmartPeeking(5000);
+	}
+}
+
+export function getTelemetryEventsHistory(): readonly QuotaCardTelemetryEvent[] {
+	return telemetryEventsHistory;
+}
+
+export function clearTelemetryHistoriesForTest(): void {
+	turnTelemetryHistory.length = 0;
+	telemetryEventsHistory.length = 0;
+	smartPeekingUntil = 0;
+	activeViewMode = "essential";
+	activeTabId = "quota";
+}
+

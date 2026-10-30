@@ -40,8 +40,20 @@ const {
 	visibleLen,
 	truncateWithAnsi,
 	setSessionAccordionState,
+	renderUnicodeSparkline,
+	renderBrailleDonut,
+	renderQuotaCardTabBar,
 } = await import("./adapter.js");
 const { runawayGuard } = await import("./guards.js");
+const {
+	setQuotaCardViewMode,
+	getQuotaCardViewMode,
+	setActiveQuotaCardTab,
+	getActiveQuotaCardTab,
+	recordTurnTelemetry,
+	recordTelemetryEvent,
+	clearTelemetryHistoriesForTest,
+} = await import("./store.js");
 import type { PoolRotationPair } from "./store.js";
 
 describe("Adapter Footer Formatting & Origin Indicator", () => {
@@ -801,6 +813,132 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 			lines.forEach((l: string, idx: number) => {
 				assert.strictEqual(visibleLen(l), 48, `Pinned line ${idx} must be 48 cols`);
 			});
+		});
+	});
+
+	describe("Bimodal QuotaCard & Blessed-Contrib Visual Tabs", () => {
+		beforeEach(() => {
+			clearTelemetryHistoriesForTest();
+		});
+
+		it("1. renders Unicode sparklines accurately based on numeric values", () => {
+			const emptySparkline = renderUnicodeSparkline([]);
+			assert.strictEqual(emptySparkline.trim(), "");
+
+			const risingValues = [10, 20, 30, 40, 50, 60, 70, 80];
+			const sparkline = renderUnicodeSparkline(risingValues);
+			assert.strictEqual(sparkline.length, 8);
+			// El primer nivel debe ser menor que el último nivel
+			assert.strictEqual(sparkline[0], " ");
+			assert.strictEqual(sparkline[sparkline.length - 1], "█");
+		});
+
+		it("2. renders Braille circular donut dials with 4 symmetric lines", () => {
+			const s = {
+				error: (t: string) => t,
+				warning: (t: string) => t,
+				accentCyan: (t: string) => t,
+				accentPurple: (t: string) => t,
+			} as any;
+			const donut = renderBrailleDonut(85, 65, s);
+			assert.strictEqual(donut.length, 4);
+			assert.ok(donut[0]!.includes("⢀⣤"));
+			assert.ok(donut[3]!.includes("⠿⠟"));
+		});
+
+		it("3. renders TabBar with hitboxes matching exact character bounds", () => {
+			const s = {
+				accentCyan: (t: string) => t,
+				boldWhite: (t: string) => t,
+				muted: (t: string) => t,
+			} as any;
+			const { line, hitboxes } = renderQuotaCardTabBar(44, "quota", s);
+			assert.strictEqual(hitboxes.length, 4);
+			assert.strictEqual(hitboxes[0]!.id, "quota");
+			assert.strictEqual(hitboxes[1]!.id, "metrics");
+			assert.strictEqual(hitboxes[2]!.id, "pool");
+			assert.strictEqual(hitboxes[3]!.id, "radar");
+			assert.ok(hitboxes[0]!.startX < hitboxes[0]!.endX);
+			assert.ok(hitboxes[1]!.startX >= hitboxes[0]!.endX);
+		});
+
+		it("4. preserves 100% Essential mode behavior by default aligned to 48 columns", () => {
+			setQuotaCardViewMode("essential");
+			assert.strictEqual(getQuotaCardViewMode(), "essential");
+
+			const lines = formatSidebarQuotaCardLines(mockPoolPair, 48);
+			lines.forEach((l: string, idx: number) => {
+				assert.strictEqual(visibleLen(l), 48, `Essential line ${idx} must be 48 cols`);
+			});
+			const text = lines.map(stripAnsi).join("\n");
+			assert.ok(text.includes("CUIDANDO EL CHAT"));
+			assert.ok(text.includes("5 HORAS"));
+		});
+
+		it("5. renders all 4 tabs in Pro Blessed mode with strict 48-column alignment", () => {
+			setQuotaCardViewMode("tabs");
+
+			// Tab 1: CUOTA
+			setActiveQuotaCardTab("quota");
+			const quotaLines = formatSidebarQuotaCardLines(mockPoolPair, 48);
+			quotaLines.forEach((l: string, idx: number) => {
+				assert.strictEqual(visibleLen(l), 48, `Tab 1 line ${idx} must be 48 cols`);
+			});
+			const quotaText = quotaLines.map(stripAnsi).join("\n");
+			assert.ok(quotaText.includes("[1 CUOTA]"));
+			assert.ok(quotaText.includes("5H:"));
+
+			// Tab 2: MÉTRICAS
+			recordTurnTelemetry({ turnId: "t1", tokens: 42000, durationMs: 1100, toolsCount: 2 });
+			setActiveQuotaCardTab("metrics");
+			const metricsLines = formatSidebarQuotaCardLines(mockPoolPair, 48);
+			metricsLines.forEach((l: string, idx: number) => {
+				assert.strictEqual(visibleLen(l), 48, `Tab 2 line ${idx} must be 48 cols`);
+			});
+			const metricsText = metricsLines.map(stripAnsi).join("\n");
+			assert.ok(metricsText.includes("[2 MÉTRICAS]"));
+			assert.ok(metricsText.includes("Sparkline:"));
+
+			// Tab 3: POOL
+			setActiveQuotaCardTab("pool");
+			const poolLines = formatSidebarQuotaCardLines(mockPoolPair, 48);
+			poolLines.forEach((l: string, idx: number) => {
+				assert.strictEqual(visibleLen(l), 48, `Tab 3 line ${idx} must be 48 cols`);
+			});
+			const poolText = poolLines.map(stripAnsi).join("\n");
+			assert.ok(poolText.includes("[3 POOL]"));
+			assert.ok(poolText.includes("FLOTA POOL"));
+
+			// Tab 4: RADAR
+			recordTelemetryEvent({ type: "rotation", source: "test", message: "Rotación preventiva exitosa" });
+			setActiveQuotaCardTab("radar");
+			const radarLines = formatSidebarQuotaCardLines(mockPoolPair, 48);
+			radarLines.forEach((l: string, idx: number) => {
+				assert.strictEqual(visibleLen(l), 48, `Tab 4 line ${idx} must be 48 cols`);
+			});
+			const radarText = radarLines.map(stripAnsi).join("\n");
+			assert.ok(radarText.includes("[4 RADAR]"));
+			assert.ok(radarText.includes("RADAR DE EVENTOS"));
+		});
+
+		it("6. triggers Smart Peeking auto-switching to Radar on critical incidents", () => {
+			setQuotaCardViewMode("tabs");
+			setActiveQuotaCardTab("quota");
+			assert.strictEqual(getActiveQuotaCardTab(), "quota");
+
+			// Disparar incidente mitigado
+			recordTelemetryEvent({
+				type: "incident_mitigated",
+				source: "auto-switcher",
+				message: "HTTP 429 mitigado en 85ms",
+			});
+
+			// Smart peeking activo: debe resolver temporalmente hacia 'radar'
+			assert.strictEqual(getActiveQuotaCardTab(), "radar");
+
+			// Al seleccionar manualmente otra pestaña, el Smart Peeking se desactiva
+			setActiveQuotaCardTab("metrics");
+			assert.strictEqual(getActiveQuotaCardTab(), "metrics");
 		});
 	});
 });

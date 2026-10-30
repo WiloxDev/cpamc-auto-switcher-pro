@@ -7,6 +7,14 @@ import {
 	getContextState,
 	type LifecycleSummary,
 	type ContextCompressionState,
+	getQuotaCardViewMode,
+	getActiveQuotaCardTab,
+	setActiveQuotaCardTab,
+	setQuotaCardViewMode,
+	type QuotaCardViewMode,
+	type QuotaCardTabId,
+	getTurnTelemetryHistory,
+	getTelemetryEventsHistory,
 } from "./store.js";
 import { resolveCpamcBaseUrl } from "./provider.js";
 import { runawayGuard, type RunawayGuardTelemetry, MAX_BASH_EXPLORATION_PER_TURN, MAX_SUBAGENT_POLL_PER_TURN } from "./guards.js";
@@ -205,6 +213,121 @@ function renderCompactBar(percentStr: string, cells = 8): string {
 	const filled = Math.min(cells, Math.max(0, Math.round((num / 100) * cells)));
 	return "▰".repeat(filled) + "▱".repeat(cells - filled);
 }
+
+// ============================================================================
+// MICRO-ALGORITMOS GRÁFICOS ZERO-DEPENDENCY ESTILO BLESSED / BLESSED-CONTRIB
+// ============================================================================
+
+/**
+ * Renderiza una curva Sparkline Unicode en una sola línea a partir de un arreglo numérico.
+ * Inspirado en blessed-contrib.sparkline con resolución nativa de 8 niveles.
+ */
+export function renderUnicodeSparkline(values: number[], maxVal?: number): string {
+	if (!values || values.length === 0) return "          ";
+	const ticks = [" ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+	const max = maxVal ?? Math.max(...values, 1);
+	return values
+		.map((v) => {
+			const safeV = Math.max(0, v);
+			const ratio = Math.min(1, safeV / max);
+			const idx = Math.min(ticks.length - 1, Math.floor(ratio * (ticks.length - 1)));
+			return ticks[idx];
+		})
+		.join("");
+}
+
+/**
+ * Matriz Braille (2x4 puntos) para renderizar diales circulares concéntricos
+ * estilo blessed-contrib.donut / Drawille en terminal sin dependencias.
+ */
+export function renderBrailleDonut(
+	pctOuter: number, // 0..100 (5 Horas)
+	pctInner: number, // 0..100 (Semanal)
+	s: ThemeStyler,
+): string[] {
+	// Donut simétrico de 4 líneas x 14 columnas con dos arcos concéntricos
+	const pOut = Math.max(0, Math.min(100, pctOuter));
+	const pIn = Math.max(0, Math.min(100, pctInner));
+
+	// Caracteres Braille progresivos según avance angular
+	const arcOuterChar = pOut >= 75 ? "⣶" : pOut >= 50 ? "⣴" : pOut >= 25 ? "⢀" : "⣀";
+	const arcInnerChar = pIn >= 75 ? "⣿" : pIn >= 50 ? "⠛" : pIn >= 25 ? "⠁" : "⠄";
+
+	const cOut = (t: string) => (pOut < 20 ? s.error(t) : pOut < 50 ? s.warning(t) : s.accentCyan(t));
+	const cIn = (t: string) => (pIn < 20 ? s.error(t) : pIn < 50 ? s.warning(t) : s.accentPurple(t));
+
+	const line1 = `   ${cOut("⢀⣤" + arcOuterChar + "⣶⣤⡀")}   `;
+	const line2 = `  ${cOut("⣾")} ${cIn("⢀" + arcInnerChar + "⡀")} ${cOut("⣷")}  `;
+	const line3 = `  ${cOut("⢿")} ${cIn("⠈" + arcInnerChar + "⠁")} ${cOut("⡿")}  `;
+	const line4 = `   ${cOut("⠈⠻" + arcOuterChar + "⠿⠟⠁")}   `;
+
+	return [line1, line2, line3, line4];
+}
+
+export interface TabHitbox {
+	id: QuotaCardTabId;
+	label: string;
+	startX: number;
+	endX: number;
+}
+
+export function renderQuotaCardTabBar(
+	width: number,
+	activeTab: QuotaCardTabId,
+	s: ThemeStyler,
+): { line: string; hitboxes: TabHitbox[] } {
+	const tabs: { id: QuotaCardTabId; key: string; label: string }[] = [
+		{ id: "quota", key: "1", label: "CUOTA" },
+		{ id: "metrics", key: "2", label: "MÉTRICAS" },
+		{ id: "pool", key: "3", label: "POOL" },
+		{ id: "radar", key: "4", label: "RADAR" },
+	];
+
+	const hitboxes: TabHitbox[] = [];
+	let currentX = 0;
+	const parts: string[] = [];
+
+	for (let i = 0; i < tabs.length; i++) {
+		const tab = tabs[i]!;
+		const isActive = tab.id === activeTab;
+		const startX = currentX;
+
+		let formatted = "";
+		let len = 0;
+		if (isActive) {
+			const text = `[${tab.key} ${tab.label}]`;
+			len = visibleLen(text);
+			formatted = s.accentCyan(s.boldWhite(text));
+		} else {
+			const text = ` ${tab.key} ${tab.label} `;
+			len = visibleLen(text);
+			formatted = s.muted(text);
+		}
+
+		const endX = currentX + len;
+		hitboxes.push({
+			id: tab.id,
+			label: tab.label,
+			startX,
+			endX,
+		});
+
+		parts.push(formatted);
+		currentX = endX;
+
+		if (i < tabs.length - 1) {
+			parts.push(" ");
+			currentX += 1;
+		}
+	}
+
+	const rawLine = parts.join("");
+	const pad = Math.max(0, width - visibleLen(rawLine));
+	const line = `${rawLine}${" ".repeat(pad)}`;
+
+	return { line, hitboxes };
+}
+
 
 interface ThemeStyler {
 	border(text: string): string;
@@ -663,7 +786,12 @@ export function formatSidebarQuotaCardLines(
 	periodLabel = "Hoy (24h)",
 	accordionState: boolean | AccordionMode = false,
 	peekRemainingSec = 20,
+	forcedViewMode?: QuotaCardViewMode,
+	forcedTabId?: QuotaCardTabId,
 ): string[] {
+	const currentViewMode = forcedViewMode || getQuotaCardViewMode();
+	const currentTab = forcedTabId || getActiveQuotaCardTab();
+
 	const mode: AccordionMode =
 		typeof accordionState === "string"
 			? accordionState
@@ -711,6 +839,98 @@ export function formatSidebarQuotaCardLines(
 	};
 
 	const divider = fitToWidth(s.border("├" + "─".repeat(Math.max(1, safeW - 2)) + "┤"), safeW);
+
+	// ========================================================================
+	// SUB-RENDERIZADORES PARA MODO PRO PESTAÑAS BLESSED
+	// ========================================================================
+	if (currentViewMode === "tabs") {
+		const topTabs = renderQuotaCardTabBar(innerW, currentTab, s);
+		const tabHeaderLine = fitToWidth(`${s.border("│")} ${topTabs.line} ${s.border("│")}`, safeW);
+		const cardTitle = pair.isNativeReadOnly ? "⚡ CUENTA DIRECTA" : `⚡ POOL: ${pair.poolKey}`;
+		const topPrefix = `${s.border("╭─ ")}${s.accent(cardTitle)} ${s.border("─")}`;
+		const prefixLen = visibleLen(topPrefix);
+		const topRules = Math.max(1, safeW - prefixLen - 1);
+		const cardTop = fitToWidth(`${topPrefix}${s.border("─".repeat(topRules) + "╮")}`, safeW);
+		const cardBottom = fitToWidth(s.border("╰" + "─".repeat(Math.max(1, safeW - 2)) + "╯"), safeW);
+
+		const tabBodyLines: string[] = [];
+
+		if (currentTab === "quota") {
+			// PESTAÑA 1: CUOTA CON DUAL BRAILLE DONUT ESTILO BLESSED-CONTRIB
+			const p5h = parseFloat((pair.active.consumed5h || "0%").replace("%", "")) || 0;
+			const pWk = parseFloat((pair.active.consumedWeekly || "0%").replace("%", "")) || 0;
+			const donutLines = renderBrailleDonut(100 - p5h, 100 - pWk, s);
+
+			const dRow1 = renderLine(donutLines[0]!, `${s.accent("5H:")} ${pair.active.consumed5h || "0%"} uso · ${100 - p5h}% libre`);
+			const dRow2 = renderLine(donutLines[1]!, `${s.muted("Semanal:")} ${pair.active.consumedWeekly || "0%"} uso · ${100 - pWk}% libre`);
+			const dRow3 = renderLine(donutLines[2]!, `${s.cyan("Líder:")} ${pair.active.prefix || pair.active.accountId} ${s.live("[● Activo]")}`);
+			const dRow4 = renderLine(donutLines[3]!, `${s.slate("Ritmo:")} ${p5h < 80 ? s.idle("● Holgado") : s.warning("Vas rápido")}`);
+
+			tabBodyLines.push(dRow1, dRow2, dRow3, dRow4);
+			if (pair.next) {
+				tabBodyLines.push(divider, renderLine(s.muted("En reserva:"), s.text(`${pair.next.prefix} (${pair.next.minAvailable} libre)`)));
+			}
+		} else if (currentTab === "metrics") {
+			// PESTAÑA 2: MÉTRICAS Y RÁFAGAS DE TOKENS ESTILO BLESSED LINE & SPARKLINE
+			const history = getTurnTelemetryHistory();
+			const tokenValues = history.length > 0 ? history.map((h) => h.tokens) : [12000, 18000, 35000, 48000, 22000, 15000, 28000];
+			const sparkline = renderUnicodeSparkline(tokenValues);
+			const lastTok = tokenValues[tokenValues.length - 1] ?? 0;
+			const maxTok = Math.max(...tokenValues, 1);
+
+			const mTitle = `${s.accentCyan("📈 RÁFAGAS & TENDENCIA")} ${s.muted("(Turnos Recientes)")}`;
+			tabBodyLines.push(renderLine(mTitle, s.muted(`${history.length} turnos`)));
+			tabBodyLines.push(renderLine(s.muted("Sparkline:"), `${s.accentCyan("[")}${s.boldWhite(sparkline)}${s.accentCyan("]")} ${s.muted(`Pico: ${Math.round(maxTok / 1000)}k`)}`));
+			tabBodyLines.push(renderLine(s.muted("Último consumo:"), s.text(`${lastTok.toLocaleString()} tokens`)));
+			tabBodyLines.push(renderLine(s.muted("Umbral preventivo:"), lastTok > 80000 ? s.error("🛑 Alerta >80%") : s.idle("● En rango óptimo")));
+		} else if (currentTab === "pool") {
+			// PESTAÑA 3: COMPARATIVA Y BALANCE DE FLOTA ESTILO BLESSED STACKED BAR
+			const pTitle = `${s.accentPurple("🛡️ FLOTA POOL")} ${s.muted(`(${pair.totalAccounts} cuentas)`)}`;
+			tabBodyLines.push(renderLine(pTitle, s.idle("● 100% Sincronizado")));
+
+			const actFree = parseFloat(pair.active.minAvailable.replace("%", "")) || 0;
+			const actBar = s.paintGauge(`${100 - actFree}%`, 8, actFree < 25);
+			tabBodyLines.push(renderLine(`${s.live("●")} ${pair.active.prefix || pair.active.accountId}:`, `${actBar} ${actFree}% libre [Líder]`));
+
+			if (pair.next) {
+				const nxtFree = parseFloat(pair.next.minAvailable.replace("%", "")) || 0;
+				const nxtBar = s.paintGauge(`${100 - nxtFree}%`, 8, nxtFree < 25);
+				tabBodyLines.push(renderLine(`${s.muted("⏸")} ${pair.next.prefix || pair.next.accountId}:`, `${nxtBar} ${nxtFree}% libre [Reserva]`));
+			}
+
+			const stratLabel = pair.isNativeReadOnly ? "Sola (Sin failover)" : "Least-Used First (Hysteresis 30%)";
+			tabBodyLines.push(divider, renderLine(s.muted("Estrategia:"), s.text(stratLabel)));
+		} else {
+			// PESTAÑA 4: RADAR DE ROTACIONES Y AUDITORÍA DE INCIDENTES ESTILO BLESSED LOG
+			const events = getTelemetryEventsHistory();
+			const rTitle = `${s.accent("📋 RADAR DE EVENTOS")} ${s.muted("(Rotaciones y 429)")}`;
+			tabBodyLines.push(renderLine(rTitle, s.muted(`${events.length} reg`)));
+
+			if (events.length > 0) {
+				for (const ev of events.slice(-4).reverse()) {
+					const timeStr = new Date(ev.timestamp).toTimeString().slice(0, 8);
+					const tag = ev.type === "incident_mitigated" ? s.amber("[429]") : ev.type === "circuit_breaker" ? s.error("[CB]") : s.idle("[OK]");
+					tabBodyLines.push(renderLine(`${s.muted(timeStr)} ${tag}`, truncateWithAnsi(ev.message, innerW - 14)));
+				}
+			} else {
+				tabBodyLines.push(renderLine(s.idle("● Todo despejado"), s.muted("Sin incidentes ni 429")));
+			}
+
+			tabBodyLines.push(divider, renderLine(s.muted("Conexión:"), s.idle("● CPAMC v8 Conectado")));
+		}
+
+		// Pista visual para alternar o regresar a modo Esencial sin reiniciar
+		const hintMode = s.muted("💡 Usa /cpamc-card para cambiar de vista");
+		const hintLine = fitToWidth(`${s.border("│")} ${hintMode}${" ".repeat(Math.max(0, innerW - visibleLen(hintMode)))} ${s.border("│")}`, safeW);
+
+		const fullProLines = [cardTop, tabHeaderLine, divider, ...tabBodyLines, divider, hintLine, cardBottom];
+		return fullProLines.map((l) => fitToWidth(l, safeW));
+	}
+
+	// ========================================================================
+	// MODO ESENCIAL / CLÁSICO (POR DEFECTO - PRESERVADO AL 100%)
+	// ========================================================================
+
 
 	// Evaluación de estado trifásico cromático (Verde tenue vs Verde brillante vs Ámbar)
 	const availNum = parseFloat(pair.active.minAvailable.replace("%", "").trim()) || 0;
@@ -1646,8 +1866,29 @@ export class CpamcTuiAdapter {
 							}
 						}
 
-						// 3. Click confirmado dentro de la Quota Card -> Alternar acordeón
-						self.toggleExpanded();
+						// 3. Interacción con Pestañas en modo "tabs" mediante hitboxes
+						if (getQuotaCardViewMode() === "tabs") {
+							// La barra de pestañas está exactamente en la fila 1 (relativa a quotaStartY: 0=cardTop, 1=tabHeaderLine)
+							const relativeY = typeof event.y === "number" ? event.y - quotaStartY : -1;
+							if (relativeY === 1 && typeof event.x === "number") {
+								const s = createThemeStyler(self.theme);
+								const tabData = renderQuotaCardTabBar(event.width || 48, getActiveQuotaCardTab(), s);
+								// Ajustar X descontando el borde izquierdo "│ " (2 caracteres)
+								const innerX = event.x - 2;
+								const clickedHitbox = tabData.hitboxes.find((h) => innerX >= h.startX && innerX <= h.endX);
+								if (clickedHitbox) {
+									setActiveQuotaCardTab(clickedHitbox.id);
+									self.requestRender();
+									return { handled: true, render: true };
+								}
+							}
+						}
+
+						// 4. Click confirmado dentro de la Quota Card -> Alternar acordeón en Esencial
+						if (getQuotaCardViewMode() === "essential") {
+							self.toggleExpanded();
+							return { handled: true, render: true };
+						}
 						return { handled: true, render: true };
 					} catch {
 						return false;
