@@ -196,6 +196,9 @@ describe("Dynamic Provider Filtering & Granular Coexistence", () => {
         assert.equal(registeredProviderConfig.headers["x-workspace-root"], process.cwd());
         assert.equal(typeof registeredProviderConfig.headers["x-project-identity"], "string");
         assert.equal(registeredProviderConfig.headers["x-project-identity"].length, 16);
+        assert.ok(registeredProviderConfig.headers["x-opencode-session"], "x-opencode-session header missing");
+        assert.ok(registeredProviderConfig.headers["x-opencode-session-id"], "x-opencode-session-id header missing");
+        assert.equal(registeredProviderConfig.headers["x-opencode-session"], registeredProviderConfig.headers["x-opencode-session-id"]);
     });
 
     it("evaluates management key resolution and detects env fallback and none cleanly", () => {

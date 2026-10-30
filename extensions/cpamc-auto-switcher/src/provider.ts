@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, watch, readdirSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { createHash } from "node:crypto";
@@ -1348,15 +1349,39 @@ export function initDynamicProvider(pi: ExtensionAPI): void {
         }
     } catch {}
 
+    // Resolve OpenCode session ID for OpenCode Go accounts (OmniAuth Pro / CPAMC bridge)
+    let opencodeSessionId = process.env.OPENCODE_SESSION_ID || process.env.PI_FREE_BRIDGE_SESSION_ID || "";
+    if (!opencodeSessionId) {
+        try {
+            const dbPath = join(homedir(), ".local", "share", "opencode", "opencode.db");
+            if (existsSync(dbPath)) {
+                const query = `sqlite3 "${dbPath}" "SELECT id FROM session ORDER BY time_created DESC LIMIT 1;"`;
+                const stdout = execSync(query, { encoding: "utf-8", timeout: 800 }).trim();
+                if (stdout && stdout.startsWith("ses_")) {
+                    opencodeSessionId = stdout;
+                }
+            }
+        } catch {}
+    }
+    if (!opencodeSessionId) {
+        opencodeSessionId = `ses_${projectIdentity || "default_session"}`;
+    }
+
+    const providerHeaders: Record<string, string> = {
+        "x-opencode-session": opencodeSessionId,
+        "x-opencode-session-id": opencodeSessionId,
+    };
+    if (projectIdentity) {
+        providerHeaders["x-project-identity"] = projectIdentity;
+        providerHeaders["x-workspace-root"] = cwd;
+    }
+
     pi.registerProvider(PROVIDER_ID, {
         name: "CPAMC",
         baseUrl: `${resolveBaseUrl()}/v1`,
         apiKey: "$CLIPROXYAPI_API_KEY",
         api: "openai-completions",
-        headers: projectIdentity ? {
-            "x-project-identity": projectIdentity,
-            "x-workspace-root": cwd,
-        } : undefined,
+        headers: providerHeaders,
         models: cachedModels.length > 0 ? (cachedModels as any) : undefined,
         compat: {
             supportsDeveloperRole: false,
