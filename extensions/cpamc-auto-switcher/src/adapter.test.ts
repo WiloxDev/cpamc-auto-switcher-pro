@@ -939,6 +939,10 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 			// Al seleccionar manualmente otra pestaña, el Smart Peeking se desactiva
 			setActiveQuotaCardTab("metrics");
 			assert.strictEqual(getActiveQuotaCardTab(), "metrics");
+
+			// Restaurar modo por defecto para no contaminar tests subsecuentes
+			setQuotaCardViewMode("essential");
+			setActiveQuotaCardTab("quota");
 		});
 	});
 });
