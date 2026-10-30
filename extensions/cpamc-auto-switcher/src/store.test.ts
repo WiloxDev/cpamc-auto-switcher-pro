@@ -32,6 +32,7 @@ const {
 	getRotationPairForModelSync,
 	classifyModel,
 	setCachedAccountsForTesting,
+	setCachedPoolsForTesting,
 } = await import("./store.js");
 const { formatSidebarQuotaCardLines, stripAnsi, visibleLen } = await import("./adapter.js");
 
@@ -142,5 +143,60 @@ describe("Standalone Accounts Quota Card & Model Resolution", () => {
 		setCachedAccountsForTesting([]);
 		const pair = getRotationPairForModelSync("gemini-2.5-flash", "cpamc");
 		assert.strictEqual(pair, null);
+	});
+
+	it("strictly respects explicit pool members (excludes account 02 when pool has only 01 and 03)", () => {
+		setCachedPoolsForTesting([
+			{
+				id: "Pool-01-gemini",
+				base_prefix: "agy",
+				family: "gemini_pure",
+				members: [
+					"antigravity-wilson01@gmail.com.json",
+					"antigravity-wilson03@gmail.com.json",
+				],
+			},
+		]);
+
+		setCachedAccountsForTesting([
+			{
+				status: "[STANDBY]",
+				provider: "antigravity",
+				profile: "agy",
+				accountId: "wilson01@gmail.com",
+				prefix: "agy",
+				consumed5h: "10%",
+				consumedWeekly: "20%",
+				minAvailable: "80%",
+			},
+			{
+				// Cuenta 02 con estado [ACTIVE] y prefijo derivado agy_2, pero NO está en members
+				status: "[ACTIVE]",
+				provider: "antigravity",
+				profile: "agy_2",
+				accountId: "wilson02@gmail.com",
+				prefix: "agy_2",
+				consumed5h: "0%",
+				consumedWeekly: "0%",
+				minAvailable: "100%",
+			},
+			{
+				status: "[STANDBY]",
+				provider: "antigravity",
+				profile: "agy_3",
+				accountId: "wilson03@gmail.com",
+				prefix: "agy_3",
+				consumed5h: "30%",
+				consumedWeekly: "40%",
+				minAvailable: "60%",
+			},
+		]);
+
+		const pair = getRotationPairForModelSync("Pool-01-gemini", "cpamc");
+		assert.ok(pair, "Pool pair must be resolved");
+		assert.strictEqual(pair.totalAccounts, 2, "Only accounts 01 and 03 should belong to the pool");
+		assert.strictEqual(pair.active.accountId, "wilson01@gmail.com", "Active account must be 01, never 02");
+		assert.ok(pair.next, "Candidate account must exist");
+		assert.strictEqual(pair.next.accountId, "wilson03@gmail.com", "Candidate account must be 03, never 02");
 	});
 });

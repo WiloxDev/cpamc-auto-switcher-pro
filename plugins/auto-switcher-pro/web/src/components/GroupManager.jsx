@@ -1376,7 +1376,7 @@ function sortModelsByFamilyAndVersion(models, familyRole, isCodex, isGemini) {
         // El modelo elegido queda como único target y el resto de la familia como opuesto/bloqueado.
         const effectiveSpecialist = selectedSpecialistModel ||
           (trimmedBase.toLowerCase().startsWith('codex')
-            ? (familyMatchingModels.find((m) => m.includes('gpt-5.4') || m.includes('gpt-4o')) || familyMatchingModels[0] || '')
+            ? (familyMatchingModels.find((m) => m.includes('gpt-6.1-sol') || m.includes('sol') || m.includes('gpt-4o')) || familyMatchingModels[0] || '')
             : (familyMatchingModels.find((m) => m.includes('3.8')) || familyMatchingModels[0] || ''));
 
         if (effectiveSpecialist) {
@@ -1456,7 +1456,7 @@ function sortModelsByFamilyAndVersion(models, familyRole, isCodex, isGemini) {
       const canonicalPoolName = `Pool-${String(nextPoolIndex).padStart(2, '0')}-${famSuffix}`;
       let defaultFamilyModel = 'gemini-3.8-flash-high';
       if (famSuffix === 'codex') {
-        defaultFamilyModel = 'gpt-5.4';
+        defaultFamilyModel = 'gpt-6.1-sol';
       } else if (famSuffix === 'claude') {
         defaultFamilyModel = 'claude-sonnet-4-6';
       }

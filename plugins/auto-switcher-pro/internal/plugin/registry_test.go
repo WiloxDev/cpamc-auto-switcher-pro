@@ -690,10 +690,10 @@ func TestPoolRegistry_ModelFamilyCompatibilityValidation(t *testing.T) {
 		BasePrefix: "codex",
 		LeaderAuth: "codex-1.json",
 		Policy: PoolPolicy{
-			TargetModels: []string{"gpt-5.4"},
+			TargetModels: []string{"gpt-6.1-sol"},
 		},
 		MemberModels: map[string]string{
-			"codex-1.json": "gpt-5.4",
+			"codex-1.json": "gpt-6.1-sol",
 		},
 	}
 	if err := reg.SavePool(compatibleCodex); err != nil {
@@ -732,11 +732,11 @@ func TestPoolRegistry_ModelFamilyCompatibilityValidation(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected healed codex pool to exist")
 	}
-	if len(healedPool.Policy.TargetModels) == 0 || healedPool.Policy.TargetModels[0] != "gpt-5.4" {
-		t.Fatalf("expected target model to be self-healed to gpt-5.4, got: %v", healedPool.Policy.TargetModels)
+	if len(healedPool.Policy.TargetModels) == 0 || healedPool.Policy.TargetModels[0] != "gpt-6.1-sol" {
+		t.Fatalf("expected target model to be self-healed to gpt-6.1-sol, got: %v", healedPool.Policy.TargetModels)
 	}
-	if healedPool.MemberModels["codex-1.json"] != "gpt-5.4" {
-		t.Fatalf("expected member model to be self-healed to gpt-5.4, got: %v", healedPool.MemberModels["codex-1.json"])
+	if healedPool.MemberModels["codex-1.json"] != "gpt-6.1-sol" {
+		t.Fatalf("expected member model to be self-healed to gpt-6.1-sol, got: %v", healedPool.MemberModels["codex-1.json"])
 	}
 }
 

@@ -724,7 +724,7 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 				const targetM = (pair?.active?.model || "").toLowerCase();
 				if (poolName.includes("codex") && targetM.includes("gemini")) {
 					ctx.ui?.notify?.(
-						`🛑 Incompatibilidad detectada: ${model.id} tiene asignado ${targetM}. Configura un modelo Codex (ej: gpt-5.4) en el panel para evitar 503.`,
+						`🛑 Incompatibilidad detectada: ${model.id} tiene asignado ${targetM}. Configura un modelo Codex (ej: gpt-6.1-sol) en el panel para evitar 503.`,
 						"error",
 					);
 				} else if (poolName.includes("gemini") && (targetM.includes("gpt-") || targetM.includes("claude"))) {

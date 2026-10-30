@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -447,7 +448,7 @@ func (r *PoolRegistry) Load() error {
 			famShort := familyCanonicalShortName(p.Family, p.BasePrefix)
 			defaultModel := "gemini-3.8-flash-high"
 			if famShort == "codex" {
-				defaultModel = "gpt-5.4"
+				defaultModel = "gpt-6.1-sol"
 			} else if famShort == "claude" {
 				defaultModel = "claude-sonnet-4-6"
 			}
@@ -471,10 +472,17 @@ func (r *PoolRegistry) Load() error {
 	}
 	r.loaded = true
 	if needsSaveSanitized {
-		// Dejar backup timestamped antes de auto-sanear
+		// Dejar backup timestamped antes de auto-sanear con comprobación de errores
 		bakPath := fmt.Sprintf("%s.bak-pre-heal-%s", r.filePath, time.Now().UTC().Format("20060102-150405"))
-		_ = os.WriteFile(bakPath, data, 0644)
-		_ = r.saveUnlocked()
+		if err := os.WriteFile(bakPath, data, 0644); err != nil {
+			log.Printf("[PoolRegistry] Advertencia: no se pudo escribir backup previo a auto-saneamiento (%s): %v", bakPath, err)
+		} else {
+			log.Printf("[PoolRegistry] Backup previo a auto-saneamiento guardado exitosamente en: %s", bakPath)
+		}
+		if err := r.saveUnlocked(); err != nil {
+			log.Printf("[PoolRegistry] Error al persistir estado saneado en %s: %v", r.filePath, err)
+			return fmt.Errorf("guardar estado auto-saneado: %w", err)
+		}
 	}
 	return nil
 }

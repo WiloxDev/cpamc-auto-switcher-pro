@@ -129,6 +129,11 @@ export function setCachedAccountsForTesting(accounts: SwitcherAccount[]): void {
 	lastFetchTime = Date.now();
 }
 
+export function setCachedPoolsForTesting(pools: StoredPool[]): void {
+	cachedPoolsState = pools;
+	lastPoolsStateRead = Date.now();
+}
+
 interface StoredPool {
 	id: string;
 	base_prefix: string;
@@ -668,6 +673,8 @@ export function getRotationPairForModelSync(modelId: string, provider: string): 
 			if (Array.isArray(matchedPool.members)) {
 				for (const m of matchedPool.members) {
 					memberEmails.add(maskEmailFromAuth(m).toLowerCase());
+					const raw = m.replace(/^antigravity-/, "").replace(/\.json$/, "").toLowerCase();
+					memberEmails.add(raw);
 				}
 			}
 			if (matchedPool.active_leader) {
@@ -679,16 +686,17 @@ export function getRotationPairForModelSync(modelId: string, provider: string): 
 	}
 
 	// Filtrar cuentas que pertenecen a este pool:
-	// 1. Por coincidencia de correo en members del pool (resolución soberana de RAM)
-	// 2. Por coincidencia de prefijo (base o sufijo numérico _N)
+	// 1. Por coincidencia de correo en members del pool (resolución soberana de RAM) si están declarados.
+	// 2. Por coincidencia de prefijo (base o sufijo numérico _N) ÚNICAMENTE como fallback si no hay members declarados.
 	// Cuentas con status [OTHER] o sin prefijo no pertenecen a ningún pool.
 	const poolAccounts = accounts.filter((a) => {
 		if (a.status === "[OTHER]" || a.prefix === "-" || !a.prefix) {
 			return false;
 		}
 		const emailLower = (a.accountId || "").toLowerCase();
-		if (memberEmails.size > 0 && memberEmails.has(emailLower)) {
-			return true;
+		if (memberEmails.size > 0) {
+			return memberEmails.has(emailLower) ||
+				Array.from(memberEmails).some((me) => me && (emailLower.includes(me) || me.includes(emailLower)));
 		}
 		const p = a.prefix.trim();
 		if (p === matchedBase) return true;
