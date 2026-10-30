@@ -100,13 +100,13 @@ export async function runDiagnostics(ctx?: ExtensionContext): Promise<DoctorRepo
 		if (mgmtKey) headers["Authorization"] = `Bearer ${mgmtKey}`;
 		let res = await fetch(`${baseUrl}/v0/management/auto-switcher-pro/manifest`, {
 			headers,
-			signal: AbortSignal.timeout(7000),
+			signal: AbortSignal.timeout(12000),
 		});
 		if (!res.ok && res.status === 404) {
 			// Fallback si CPAMC o proxy mapea sin el prefijo /v0/management
 			res = await fetch(`${baseUrl}/auto-switcher-pro/manifest`, {
 				headers,
-				signal: AbortSignal.timeout(7000),
+				signal: AbortSignal.timeout(12000),
 			});
 		}
 		if (res.ok) {
