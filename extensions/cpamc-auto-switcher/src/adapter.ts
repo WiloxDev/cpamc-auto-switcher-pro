@@ -1657,52 +1657,7 @@ export class CpamcTuiAdapter {
 
 		const self = this;
 
-		// 1. Siempre registrar la tarjeta cpamc-quota-card independiente (para hosts con sección habilitada)
-		gentleState.parts.set("cpamc-quota-card", {
-			render: () => {
-				try {
-					self.lastStandaloneRenderTime = Date.now();
-					const m = self.safeGetModel();
-					const p = m ? (getRotationPairForModelSync(m.id, m.provider) || self.currentPair) : self.currentPair;
-					return formatSidebarQuotaCardLines(
-						p,
-						48,
-						"\x1b[38;2;120;153;166m",
-						self.theme,
-						self.isBusy,
-						undefined,
-						self.getPeriodLabel(),
-						self.accordionMode,
-						self.peekRemainingSec,
-					);
-				} catch {
-					return [];
-				}
-			},
-			digest: () => {
-				try {
-					const m = self.safeGetModel();
-					const p = m ? (getRotationPairForModelSync(m.id, m.provider) || self.currentPair) : self.currentPair;
-					const g = runawayGuard.getTelemetry();
-					return `${m?.id || "none"}-${p?.poolKey || "none"}-${p?.active?.prefix || "none"}-${p?.active?.minAvailable || "none"}-${self.isBusy}-${self.accordionMode}-${self.peekRemainingSec}-${g.bashExplorationCount}-${g.subagentPollCount}-${g.blockedIntrospections}-${g.blockedBashEvasions}`;
-				} catch {
-					return "none";
-				}
-			},
-			invalidate: () => {},
-			handleMouse: (event: any) => {
-				try {
-					if (!event) return undefined;
-					// 1. Aceptar únicamente click izquierdo real (elimina doble toggle por press + click)
-					if (event.type === "click" && (!event.button || event.button === "left")) {
-						self.toggleExpanded();
-						return { handled: true, render: true };
-					}
-				} catch {}
-				return undefined;
-			},
-		});
-
+		// cpamc-quota-card sidebar registration removed per user request
 		// 2. Interceptor reactivo universal sobre "footer" con protección anti-duplicación
 		const wrapFooter = (originalRail: any) => {
 			if (!originalRail || originalRail.__isCpamcDecorated) {

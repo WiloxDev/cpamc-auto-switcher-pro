@@ -1728,7 +1728,6 @@ export const CANONICAL_PROVIDER_MODELS = {
     'mimo-v2.6-flash',
     'qwen3.8-flash',
     'deepseek-v4-pro',
-    'glm-5.3',
   ],
   nvidia: [
     'meta/llama-3.3-70b-instruct',

@@ -301,16 +301,9 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 		// Invalidate and inject
 		(adapter as any).injectIntoSidebar(gentleState);
 
+		// cpamc-quota-card sidebar registration removed per user request
 		const quotaWidget = parts.get("cpamc-quota-card");
-		assert.ok(quotaWidget, "quota widget must be registered");
-
-		// Even when accessing model throws an error, render and digest MUST return safely without throwing
-		const renderedLines = quotaWidget.render();
-		assert.ok(Array.isArray(renderedLines));
-
-		const digestStr = quotaWidget.digest();
-		assert.equal(typeof digestStr, "string");
-		assert.ok(digestStr.includes("none"));
+		assert.strictEqual(quotaWidget, undefined, "quota widget should not be registered in sidebar");
 	});
 
 	it("resiliently hooks gentleState.parts.set so future footer overrides by Gentle-Shell are auto-decorated", () => {
@@ -450,21 +443,14 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 		// Inyectar en el sidebar
 		(adapter as any).injectIntoSidebar(gentleState);
 
+		// cpamc-quota-card sidebar registration removed per user request
+		const standaloneCard = parts.get("cpamc-quota-card");
+		assert.strictEqual(standaloneCard, undefined, "standalone card should not be registered");
+
 		// Caso A: Gentle-Shell NO renderiza standalone -> El footer SÍ incluye la tarjeta de cuotas
 		const decoratedFooter = parts.get("footer");
 		const linesWithDecorator = decoratedFooter.render(48);
 		assert.match(linesWithDecorator.join("\n"), /DISYUNTOR|CUIDANDO EL CHAT/);
-
-		// Caso B: Gentle-Shell ejecuta render() del standalone 'cpamc-quota-card'
-		const standaloneCard = parts.get("cpamc-quota-card");
-		assert.ok(standaloneCard);
-		const standaloneLines = standaloneCard.render(48);
-		assert.match(standaloneLines.join("\n"), /DISYUNTOR|CUIDANDO EL CHAT/);
-
-		// Ahora el render() del footer decorado debe detectar que el standalone ya se dibujó y NO duplicar
-		const linesWithoutDuplication = decoratedFooter.render(48);
-		assert.doesNotMatch(linesWithoutDuplication.join("\n"), /DISYUNTOR|CUIDANDO EL CHAT/);
-		assert.match(linesWithoutDuplication.join("\n"), /Status/);
 
 		adapter.destroy();
 	});
