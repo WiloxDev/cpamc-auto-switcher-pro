@@ -331,20 +331,22 @@ func normalizePoolDefinition(pool *PoolDefinition) {
 
 // RegistryState is the serializable structure stored on disk.
 type RegistryState struct {
-	Version   int              `json:"version"`
-	UpdatedAt string           `json:"updated_at"`
-	Pools     []PoolDefinition `json:"pools"`
+	Version           int               `json:"version"`
+	UpdatedAt         string            `json:"updated_at"`
+	Pools             []PoolDefinition  `json:"pools"`
+	StandaloneAliases map[string]string `json:"standalone_aliases,omitempty"`
 }
 
 // PoolRegistry provides thread-safe in-memory caching and atomic file persistence
 // for pools created via GroupManager.
 type PoolRegistry struct {
-	mu             sync.RWMutex
-	filePath       string
-	pools          map[string]PoolDefinition // keyed by base_prefix (case-insensitive)
-	activeLeaders  map[string]string         // volatile in-memory active leader per pool key
-	projectLeaders map[string]string         // volatile in-memory project affinity leader (poolKey::projectID -> activeAuth)
-	loaded         bool
+	mu                sync.RWMutex
+	filePath          string
+	pools             map[string]PoolDefinition // keyed by base_prefix (case-insensitive)
+	standaloneAliases map[string]string         // accountKey/fileName -> alias (e.g. "CX1", "AG1")
+	activeLeaders     map[string]string         // volatile in-memory active leader per pool key
+	projectLeaders    map[string]string         // volatile in-memory project affinity leader (poolKey::projectID -> activeAuth)
+	loaded            bool
 }
 
 var (
@@ -391,9 +393,10 @@ func resolveStateFilePath(customPath string) string {
 func NewPoolRegistry(filePath string) *PoolRegistry {
 	resolved := resolveStateFilePath(filePath)
 	return &PoolRegistry{
-		filePath:      resolved,
-		pools:         make(map[string]PoolDefinition),
-		activeLeaders: make(map[string]string),
+		filePath:          resolved,
+		pools:             make(map[string]PoolDefinition),
+		standaloneAliases: make(map[string]string),
+		activeLeaders:     make(map[string]string),
 	}
 }
 
@@ -427,8 +430,14 @@ func (r *PoolRegistry) Load() error {
 	}
 
 	r.pools = make(map[string]PoolDefinition)
+	r.standaloneAliases = make(map[string]string)
 	if r.activeLeaders == nil {
 		r.activeLeaders = make(map[string]string)
+	}
+	if state.StandaloneAliases != nil {
+		for k, v := range state.StandaloneAliases {
+			r.standaloneAliases[strings.TrimSpace(k)] = strings.ToUpper(strings.TrimSpace(v))
+		}
 	}
 	for _, p := range state.Pools {
 		normalizePoolDefinition(&p)
@@ -504,14 +513,19 @@ func (r *PoolRegistry) Save() error {
 	for _, p := range r.pools {
 		poolsList = append(poolsList, p)
 	}
+	aliasesCopy := make(map[string]string, len(r.standaloneAliases))
+	for k, v := range r.standaloneAliases {
+		aliasesCopy[k] = v
+	}
 	r.mu.RUnlock()
 
 	sortPoolDefinitions(poolsList)
 
 	state := RegistryState{
-		Version:   1,
-		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
-		Pools:     poolsList,
+		Version:           1,
+		UpdatedAt:         time.Now().UTC().Format(time.RFC3339),
+		Pools:             poolsList,
+		StandaloneAliases: aliasesCopy,
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -554,6 +568,110 @@ func (r *PoolRegistry) Save() error {
 	}
 
 	return nil
+}
+
+// resolveProviderPrefix maps a provider name/family to a 2-letter uppercase alias prefix.
+func resolveProviderPrefix(provider string) string {
+	low := strings.ToLower(strings.TrimSpace(provider))
+	switch {
+	case strings.Contains(low, "codex") || strings.Contains(low, "openai"):
+		return "CX"
+	case strings.Contains(low, "antigravity") || strings.Contains(low, "google") || strings.Contains(low, "gemini"):
+		if strings.Contains(low, "argon") {
+			return "AR"
+		}
+		return "AG"
+	case strings.Contains(low, "claude") || strings.Contains(low, "anthropic"):
+		return "CL"
+	case strings.Contains(low, "argon"):
+		return "AR"
+	case strings.Contains(low, "opencode") || strings.Contains(low, "nim") || strings.Contains(low, "nan") || strings.Contains(low, "nvidia"):
+		return "OC"
+	default:
+		clean := strings.ToUpper(regexp.MustCompile(`[^a-zA-Z]`).ReplaceAllString(low, ""))
+		if len(clean) >= 2 {
+			return clean[:2]
+		}
+		return "ST"
+	}
+}
+
+// GetOrAssignStandaloneAlias returns a short, deterministic alias (e.g. CX1, CX2, AG1)
+// for an unassigned standalone account. If none exists yet, it deterministically assigns
+// the lowest available integer for the provider's family prefix.
+func (r *PoolRegistry) GetOrAssignStandaloneAlias(accountKey string, provider string) string {
+	cleanKey := strings.TrimSpace(accountKey)
+	if cleanKey == "" {
+		return ""
+	}
+
+	r.mu.Lock()
+	if r.standaloneAliases == nil {
+		r.standaloneAliases = make(map[string]string)
+	}
+
+	// 1. Check if already assigned
+	if existing, ok := r.standaloneAliases[cleanKey]; ok && existing != "" {
+		r.mu.Unlock()
+		return existing
+	}
+
+	// 2. Determine prefix for provider
+	pref := resolveProviderPrefix(provider)
+
+	// 3. Find used numbers for this prefix
+	usedNums := make(map[int]bool)
+	prefixRegex := regexp.MustCompile(fmt.Sprintf(`^%s(\d+)$`, regexp.QuoteMeta(pref)))
+	for _, alias := range r.standaloneAliases {
+		if m := prefixRegex.FindStringSubmatch(alias); len(m) > 1 {
+			if n, err := strconv.Atoi(m[1]); err == nil {
+				usedNums[n] = true
+			}
+		}
+	}
+
+	// 4. Find lowest available positive integer
+	nextNum := 1
+	for usedNums[nextNum] {
+		nextNum++
+	}
+
+	assigned := fmt.Sprintf("%s%d", pref, nextNum)
+	r.standaloneAliases[cleanKey] = assigned
+	r.mu.Unlock()
+
+	_ = r.Save()
+	return assigned
+}
+
+// GetAccountForAlias returns the account key associated with a standalone alias.
+func (r *PoolRegistry) GetAccountForAlias(alias string) (string, bool) {
+	cleanAlias := strings.ToUpper(strings.TrimSpace(alias))
+	if cleanAlias == "" {
+		return "", false
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for k, v := range r.standaloneAliases {
+		if strings.EqualFold(v, cleanAlias) {
+			return k, true
+		}
+	}
+	return "", false
+}
+
+// GetAllStandaloneAliases returns a copy of all current standalone alias mappings.
+func (r *PoolRegistry) GetAllStandaloneAliases() map[string]string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	out := make(map[string]string, len(r.standaloneAliases))
+	for k, v := range r.standaloneAliases {
+		out[k] = v
+	}
+	return out
 }
 
 // ListPools returns all stored pools as a slice, automatically reconciling

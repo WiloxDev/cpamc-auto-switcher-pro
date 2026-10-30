@@ -413,6 +413,17 @@ func (pe *PredictiveEngine) SetCooldown(accountEmail string, duration time.Durat
 // ShouldPreventiveCool indica si la cuenta debe descansar preventivamente para evitar un 429.
 // Mantiene al líder sticky mientras su cuota viva sea segura (>= 20% en 5h y >= 15% semanal).
 func (pe *PredictiveEngine) ShouldPreventiveCool(accountEmail string, family ...string) bool {
+	return pe.ShouldPreventiveCoolSticky(accountEmail, false, family...)
+}
+
+// ShouldPreventiveCoolSticky evalúa si la cuenta debe descansar preventivamente, aplicando
+// histéresis dinámica basada en el estado de afinidad de sesión (CacheSticky).
+// Si isCacheSticky es true (sesión activa multiturno con historial en los últimos 5 minutos):
+// - El piso de cuota en 5h se relaja del 20.0% al 10.0% (y semanal del 15.0% al 8.0%).
+// - El umbral de fatiga por requests se estira al 95% (en vez del 80%).
+// Esto evita la destrucción del Prompt Cache caliente (evitando recargo de 12.5x en tokens y saltos de TTFT).
+// Si la cuenta tiene un cooldown activo (por 429 previo) o cae por debajo del 10%, el enfriamiento es obligatorio.
+func (pe *PredictiveEngine) ShouldPreventiveCoolSticky(accountEmail string, isCacheSticky bool, family ...string) bool {
 	pe.mu.RLock()
 	defer pe.mu.RUnlock()
 
@@ -429,7 +440,37 @@ func (pe *PredictiveEngine) ShouldPreventiveCool(accountEmail string, family ...
 		}
 	}
 
-	// 2. ¿Tiene agotamiento crítico de cuota viva (< 20% en 5h o < 15% semanal)?
+	// Dynamic Hysteresis Floors:
+	floor5h := 20.0
+	floorWeekly := 15.0
+	thresholdMultiplier := 1.0
+	if isCacheSticky {
+		floor5h = 10.0
+		floorWeekly = 8.0
+		thresholdMultiplier = 1.1875 // 80% * 1.1875 = 95% de fatiga permitida
+
+		// Velocity-Aware Protection against Leader Starvation (Cliff Exhaustion):
+		// Si la cuenta experimenta una ráfaga masiva de actividad (>=85% de su cuota horaria)
+		// y su cuota ya está en zona de advertencia (<15%), elevar el piso a 15% para
+		// provocar un traspaso suave a la reserva antes de que caiga bruscamente al 0%.
+		if pe.config.MaxReqsPerHour > 0 {
+			now := time.Now()
+			cutoff := now.Add(-1 * time.Hour)
+			recentReqs := 0
+			for _, r := range pe.activity[key] {
+				if r.Timestamp.After(cutoff) {
+					recentReqs++
+				}
+			}
+			velocityPct := (float64(recentReqs) / float64(pe.config.MaxReqsPerHour)) * 100.0
+			if velocityPct >= 85.0 {
+				floor5h = 15.0
+				floorWeekly = 12.0
+			}
+		}
+	}
+
+	// 2. ¿Tiene agotamiento crítico de cuota viva?
 	if pe.quotas != nil {
 		var q AccountQuotaTelemetry
 		var hasQ bool
@@ -443,9 +484,8 @@ func (pe *PredictiveEngine) ShouldPreventiveCool(accountEmail string, family ...
 		}
 		if hasQ {
 			if !q.UpdatedAt.IsZero() {
-				// Sticky Leader Hysteresis: Si tiene cuota >= 20% (5h) y >= 15% (semanal),
-				// NO enfriar preventivamente, preservando el Prompt Cache.
-				if q.Window5hPct < 20.0 || (q.WeeklyPct > 0 && q.WeeklyPct < 15.0) {
+				// Dynamic Sticky Hysteresis: evaluar contra el piso dinámico
+				if q.Window5hPct < floor5h || (q.WeeklyPct > 0 && q.WeeklyPct < floorWeekly) {
 					return true
 				}
 				// Si tiene telemetría y está sana, no enfriar por fatiga de requests
@@ -464,7 +504,11 @@ func (pe *PredictiveEngine) ShouldPreventiveCool(accountEmail string, family ...
 		}
 	}
 
-	limit := float64(pe.config.MaxReqsPerHour) * (pe.config.ThresholdPct / 100.0)
+	effectiveThreshold := pe.config.ThresholdPct * thresholdMultiplier
+	if effectiveThreshold > 98.0 {
+		effectiveThreshold = 98.0
+	}
+	limit := float64(pe.config.MaxReqsPerHour) * (effectiveThreshold / 100.0)
 	return float64(count) >= limit
 }
 

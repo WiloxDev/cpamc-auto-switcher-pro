@@ -139,6 +139,15 @@ function saveCachedModels(models: unknown[]): void {
     }
 }
 
+export interface StandaloneAccountDescriptor {
+    accountKey: string;
+    email: string;
+    alias: string;
+    provider: string;
+    maskedEmail: string;
+    excludedModels: Set<string>;
+}
+
 // Caché en memoria para retener los prefijos válidos y modelos excluidos
 let cachedFilterData: {
     validPrefixes: Set<string>;
@@ -151,8 +160,12 @@ let cachedFilterData: {
     bareExclusions: Set<string>;
     registeredPoolBases: Set<string>;
     confirmedActivePools: Set<string>;
+    standaloneAccounts?: StandaloneAccountDescriptor[];
 } | null = null;
 let lastKnownEpoch: string | null = null;
+
+let activePiInstance: ExtensionAPI | null = null;
+const registeredSubproviders = new Set<string>();
 
 function readCurrentSignalEpoch(): string | null {
     const epochTargets = [
@@ -761,6 +774,7 @@ async function fetchAccountPrefixesAndExclusions(preferredBaseUrl?: string, sign
     bareExclusions: Set<string>;
     registeredPoolBases: Set<string>;
     confirmedActivePools: Set<string>;
+    standaloneAccounts: StandaloneAccountDescriptor[];
 } | null> {
     const mgmtKey = resolveManagementKey();
     if (!mgmtKey) return null;
@@ -951,6 +965,85 @@ async function fetchAccountPrefixesAndExclusions(preferredBaseUrl?: string, sign
                 }
             }
 
+            // Descubrir alias estables para cuentas standalone (CX1, CX2, AG1...)
+            const standaloneAliases = new Map<string, string>();
+            const standaloneAccounts: StandaloneAccountDescriptor[] = [];
+
+            try {
+                const manifestRes = await fetch(`${baseUrl}/v0/management/auto-switcher-pro/manifest`, {
+                    headers: {
+                        Authorization: `Bearer ${mgmtKey}`,
+                        Accept: "application/json",
+                    },
+                    signal: combinedSignal,
+                });
+                if (manifestRes.ok) {
+                    const mData = (await manifestRes.json()) as any;
+                    if (mData.standalone_aliases && typeof mData.standalone_aliases === "object") {
+                        for (const [k, v] of Object.entries(mData.standalone_aliases)) {
+                            if (typeof v === "string") standaloneAliases.set(k, v);
+                        }
+                    }
+                    if (Array.isArray(mData.accounts)) {
+                        for (const a of mData.accounts) {
+                            if (a.role === "unassigned" && a.account_key) {
+                                const al = a.alias || standaloneAliases.get(a.account_key) || "";
+                                if (al) {
+                                    const prov = (a.provider || authFileProviders.get(a.account_key) || "antigravity").toLowerCase();
+                                    const rawEmail = a.email || a.account_key;
+                                    const atIdx = rawEmail.indexOf("@");
+                                    const masked = atIdx > 3 ? `${rawEmail.slice(0, 3)}...${rawEmail.slice(atIdx - 3)}` : rawEmail;
+                                    standaloneAccounts.push({
+                                        accountKey: a.account_key,
+                                        email: rawEmail,
+                                        alias: al,
+                                        provider: prov,
+                                        maskedEmail: masked,
+                                        excludedModels: authFileExclusions.get(a.account_key) || new Set(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch {}
+
+            // Fallback de estado local si /manifest no estaba disponible o no devolvió alias
+            if (standaloneAccounts.length === 0) {
+                const stateFiles = resolveSignalFileTargets().filter((f) => f.endsWith("auto-switcher-pro-state.json"));
+                for (const sf of stateFiles) {
+                    try {
+                        if (existsSync(sf)) {
+                            const raw = JSON.parse(readFileSync(sf, "utf-8"));
+                            if (raw.standalone_aliases && typeof raw.standalone_aliases === "object") {
+                                for (const [k, v] of Object.entries(raw.standalone_aliases)) {
+                                    if (typeof v === "string") standaloneAliases.set(k, v);
+                                }
+                            }
+                        }
+                    } catch {}
+                }
+                for (const fileName of activeAuthFiles) {
+                    if (!poolMemberFiles.has(fileName)) {
+                        const al = standaloneAliases.get(fileName);
+                        if (al) {
+                            const prov = (authFileProviders.get(fileName) || "antigravity").toLowerCase();
+                            const rawEmail = fileName.replace(/^antigravity-|^codex-|^claude-/, "").replace(/\.json$/, "");
+                            const atIdx = rawEmail.indexOf("@");
+                            const masked = atIdx > 3 ? `${rawEmail.slice(0, 3)}...${rawEmail.slice(atIdx - 3)}` : rawEmail;
+                            standaloneAccounts.push({
+                                accountKey: fileName,
+                                email: rawEmail,
+                                alias: al,
+                                provider: prov,
+                                maskedEmail: masked,
+                                excludedModels: authFileExclusions.get(fileName) || new Set(),
+                            });
+                        }
+                    }
+                }
+            }
+
             const result = {
                 validPrefixes,
                 prefixExclusions,
@@ -962,6 +1055,7 @@ async function fetchAccountPrefixesAndExclusions(preferredBaseUrl?: string, sign
                 bareExclusions,
                 registeredPoolBases,
                 confirmedActivePools,
+                standaloneAccounts,
             };
             cachedFilterData = result;
             lastKnownEpoch = currentEpoch || readCurrentSignalEpoch();
@@ -993,6 +1087,7 @@ export function isCleanIncludedModel(id: string, filterData: {
     activeBareProviders?: Set<string>;
     bareExclusions?: Set<string>;
     registeredPoolBases?: Set<string>;
+    standaloneAccounts?: StandaloneAccountDescriptor[];
 } | null): boolean {
     const trimmed = id.trim();
 
@@ -1024,6 +1119,23 @@ export function isCleanIncludedModel(id: string, filterData: {
         }
 
         const lower = trimmed.toLowerCase();
+
+        // Si las cuentas libres de este proveedor ya están expuestas unívocamente vía sub-proveedores con alias (ej. CX1, CX2),
+        // suprimir la ruta plana ambigua bajo 'cpamc' para evitar opciones duplicadas no diferenciadas.
+        if (filterData.standaloneAccounts && filterData.standaloneAccounts.length > 0) {
+            const hasAliasedAccount = filterData.standaloneAccounts.some((acc) => {
+                const prov = acc.provider.toLowerCase();
+                if ((prov.includes("codex") || prov.includes("openai")) && (lower.startsWith("gpt") || lower.startsWith("o1") || lower.startsWith("o3") || lower.startsWith("chatgpt"))) return true;
+                if ((prov.includes("antigravity") || prov.includes("google") || prov.includes("gemini")) && (lower.startsWith("gemini") || lower.includes("gemini")) && !lower.includes("argon")) return true;
+                if (prov.includes("argon") && (lower.includes("argon") || lower === "gemini-4-argon" || lower === "gemini-2.5-pro")) return true;
+                if ((prov.includes("claude") || prov.includes("anthropic")) && lower.startsWith("claude")) return true;
+                return false;
+            });
+            if (hasAliasedAccount) {
+                return false;
+            }
+        }
+
         let matchesActiveBareProvider = false;
 
         if (filterData.activeBareProviders.has("antigravity") && (lower.startsWith("gemini") || lower.includes("gemini"))) {
@@ -1180,6 +1292,15 @@ export async function fetchCLIProxyModels(signal?: AbortSignal) {
                 respondedOkUrl = baseUrl;
                 const payload = (await response.json()) as { models?: CPAModel[] };
                 if (Array.isArray(payload.models) && payload.models.length > 0) {
+                    if (activePiInstance && filterData?.standaloneAccounts && filterData.standaloneAccounts.length > 0) {
+                        syncStandaloneSubproviders(
+                            activePiInstance,
+                            filterData.standaloneAccounts,
+                            payload.models,
+                            baseUrl,
+                            resolveProviderHeaders()
+                        );
+                    }
                     const included = payload.models.filter((model) => {
                         const id = typeof model.slug === "string" ? model.slug.trim()
                             : (typeof model.id === "string" ? model.id.trim() : "");
@@ -1217,6 +1338,17 @@ export async function fetchCLIProxyModels(signal?: AbortSignal) {
             if (response.ok) {
                 respondedOkUrl = baseUrl;
                 const payload = (await response.json()) as { data?: FallbackOpenAIModel[] };
+                if (Array.isArray(payload.data) && payload.data.length > 0) {
+                    if (activePiInstance && filterData?.standaloneAccounts && filterData.standaloneAccounts.length > 0) {
+                        syncStandaloneSubproviders(
+                            activePiInstance,
+                            filterData.standaloneAccounts,
+                            payload.data as any,
+                            baseUrl,
+                            resolveProviderHeaders()
+                        );
+                    }
+                }
                 const includedFallback = (payload.data ?? []).filter((model) => {
                     const id = typeof model.id === "string" ? model.id.trim() : "";
                     return isCleanIncludedModel(id, filterData);
@@ -1284,7 +1416,132 @@ export function reconcileActivePoolFacades<T extends { id: string }>(
     return result;
 }
 
+export function resolveProviderHeaders(): Record<string, string> {
+    let projectIdentity = "";
+    const cwd = process.cwd();
+    try {
+        if (cwd) {
+            projectIdentity = createHash("sha256").update(cwd).digest("hex").slice(0, 16);
+        }
+    } catch {}
+
+    let opencodeSessionId = process.env.OPENCODE_SESSION_ID || process.env.PI_FREE_BRIDGE_SESSION_ID || "";
+    if (!opencodeSessionId) {
+        try {
+            const dbPath = join(homedir(), ".local", "share", "opencode", "opencode.db");
+            if (existsSync(dbPath)) {
+                const query = `sqlite3 "${dbPath}" "SELECT id FROM session ORDER BY time_created DESC LIMIT 1;"`;
+                const stdout = execSync(query, { encoding: "utf-8", timeout: 800 }).trim();
+                if (stdout && stdout.startsWith("ses_")) {
+                    opencodeSessionId = stdout;
+                }
+            }
+        } catch {}
+    }
+    if (!opencodeSessionId) {
+        opencodeSessionId = `ses_${projectIdentity || "default_session"}`;
+    }
+
+    const providerHeaders: Record<string, string> = {
+        "x-opencode-session": opencodeSessionId,
+        "x-opencode-session-id": opencodeSessionId,
+    };
+    if (projectIdentity) {
+        providerHeaders["x-project-identity"] = projectIdentity;
+        providerHeaders["x-workspace-root"] = cwd;
+    }
+    return providerHeaders;
+}
+
+export function syncStandaloneSubproviders(
+    pi: ExtensionAPI,
+    standaloneAccounts: StandaloneAccountDescriptor[],
+    rawModels: Array<{ id?: string; slug?: string; display_name?: string; [key: string]: any }>,
+    candidateBaseUrl: string,
+    providerHeaders: Record<string, string>
+) {
+    const currentAliases = new Set<string>();
+
+    for (const acc of standaloneAccounts) {
+        if (!acc.alias) continue;
+        const subProvId = `cpamc - ${acc.alias}`;
+        currentAliases.add(subProvId);
+
+        const lowerProv = acc.provider.toLowerCase();
+        const matchingRaw = rawModels.filter((m) => {
+            const rawId = (typeof m.slug === "string" ? m.slug : (typeof m.id === "string" ? m.id : "")).trim();
+            if (!rawId || /^pool-\d+-/i.test(rawId) || rawId.includes("/")) return false;
+            if (acc.excludedModels.has(rawId)) return false;
+
+            const lower = rawId.toLowerCase();
+            if (lowerProv.includes("codex") || lowerProv.includes("openai")) {
+                return lower.startsWith("gpt") || lower.startsWith("o1") || lower.startsWith("o3") || lower.startsWith("chatgpt") || lower.includes("codex");
+            }
+            if (lowerProv.includes("argon")) {
+                return lower.includes("argon") || lower === "gemini-4-argon" || lower === "gemini-2.5-pro";
+            }
+            if (lowerProv.includes("antigravity") || lowerProv.includes("google") || lowerProv.includes("gemini")) {
+                return (lower.startsWith("gemini") || lower.includes("gemini")) && !lower.includes("argon");
+            }
+            if (lowerProv.includes("claude") || lowerProv.includes("anthropic")) {
+                return lower.startsWith("claude");
+            }
+            return false;
+        });
+
+        const mappedSubModels = matchingRaw.map((m) => {
+            const id = (typeof m.slug === "string" ? m.slug : (typeof m.id === "string" ? m.id : "")).trim();
+            const baseMapped = toPiModelFromCPA(m);
+            if (!baseMapped) return null;
+            const cleanDisplayName = typeof m.display_name === "string" && m.display_name.trim() ? m.display_name.trim() : id;
+            return {
+                ...baseMapped,
+                id,
+                provider: subProvId,
+                name: `${cleanDisplayName} [${acc.alias}]`,
+                description: `Cuenta libre ${acc.alias} (${acc.maskedEmail || acc.email}) · CPAMC`,
+            };
+        }).filter((m): m is NonNullable<typeof m> => Boolean(m));
+
+        if (mappedSubModels.length > 0) {
+            pi.registerProvider(subProvId, {
+                name: `CPAMC (${acc.alias})`,
+                baseUrl: `${candidateBaseUrl}/v1`,
+                apiKey: "$CLIPROXYAPI_API_KEY",
+                api: "openai-completions",
+                headers: {
+                    ...providerHeaders,
+                    "X-Account-Alias": acc.alias,
+                },
+                models: mappedSubModels as any,
+                compat: {
+                    supportsDeveloperRole: false,
+                    supportsReasoningEffort: true,
+                    supportsUsageInStreaming: true,
+                    maxTokensField: "max_tokens",
+                },
+                async refreshModels() {
+                    return mappedSubModels as any;
+                },
+            } as any);
+            registeredSubproviders.add(subProvId);
+        }
+    }
+
+    for (const prev of Array.from(registeredSubproviders)) {
+        if (!currentAliases.has(prev)) {
+            try {
+                if (typeof pi.unregisterProvider === "function") {
+                    pi.unregisterProvider(prev);
+                }
+            } catch {}
+            registeredSubproviders.delete(prev);
+        }
+    }
+}
+
 export function initDynamicProvider(pi: ExtensionAPI): void {
+    activePiInstance = pi;
     const cachedModels = loadCachedModels();
 
     // Refresco asíncrono en segundo plano al arrancar la extensión
@@ -1340,41 +1597,7 @@ export function initDynamicProvider(pi: ExtensionAPI): void {
         process.env.CLIPROXYAPI_MANAGEMENT_KEY = settings.managementKey;
     }
 
-    // Resolve deterministic Project Identity (SHA-256 of active workspace/cwd) for Zero-Config cache affinity
-    let projectIdentity = "";
-    const cwd = process.cwd();
-    try {
-        if (cwd) {
-            projectIdentity = createHash("sha256").update(cwd).digest("hex").slice(0, 16);
-        }
-    } catch {}
-
-    // Resolve OpenCode session ID for OpenCode Go accounts (OmniAuth Pro / CPAMC bridge)
-    let opencodeSessionId = process.env.OPENCODE_SESSION_ID || process.env.PI_FREE_BRIDGE_SESSION_ID || "";
-    if (!opencodeSessionId) {
-        try {
-            const dbPath = join(homedir(), ".local", "share", "opencode", "opencode.db");
-            if (existsSync(dbPath)) {
-                const query = `sqlite3 "${dbPath}" "SELECT id FROM session ORDER BY time_created DESC LIMIT 1;"`;
-                const stdout = execSync(query, { encoding: "utf-8", timeout: 800 }).trim();
-                if (stdout && stdout.startsWith("ses_")) {
-                    opencodeSessionId = stdout;
-                }
-            }
-        } catch {}
-    }
-    if (!opencodeSessionId) {
-        opencodeSessionId = `ses_${projectIdentity || "default_session"}`;
-    }
-
-    const providerHeaders: Record<string, string> = {
-        "x-opencode-session": opencodeSessionId,
-        "x-opencode-session-id": opencodeSessionId,
-    };
-    if (projectIdentity) {
-        providerHeaders["x-project-identity"] = projectIdentity;
-        providerHeaders["x-workspace-root"] = cwd;
-    }
+    const providerHeaders = resolveProviderHeaders();
 
     pi.registerProvider(PROVIDER_ID, {
         name: "CPAMC",

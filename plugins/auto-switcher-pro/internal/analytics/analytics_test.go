@@ -207,6 +207,50 @@ func TestSQLiteAnalyticsLifecycle(t *testing.T) {
 		t.Errorf("expected TurnCount >= 2 after second turn, got %d", affTurn2.TurnCount)
 	}
 
+	// Validate Cache-Stickiness on active multi-turn session
+	if !affTurn2.IsCacheSticky() {
+		t.Errorf("expected active multi-turn session (turn >= 2, fresh TTL) to be CacheSticky")
+	}
+
+	// Single turn session should not be cache-sticky yet if context is low
+	singleTurnAff := SessionAffinity{
+		SessionID:     "single-turn-session",
+		PoolID:        "Pool-01-gemini",
+		AccountEmail:  "leader@gmail.com",
+		TurnCount:     1,
+		ContextTokens: 500, // Small prompt
+		LastTurnMs:    time.Now().UnixMilli(),
+	}
+	if singleTurnAff.IsCacheSticky() {
+		t.Errorf("expected single turn session with low context to not be CacheSticky")
+	}
+
+	// Single turn session with heavy context (>= 8000 tokens) MUST be CacheSticky from turn 1
+	singleTurnHeavyAff := SessionAffinity{
+		SessionID:     "heavy-turn-1-session",
+		PoolID:        "Pool-01-gemini",
+		AccountEmail:  "leader@gmail.com",
+		TurnCount:     1,
+		ContextTokens: 12500, // Heavy prompt (e.g. subagent or research prompt)
+		PrefixHash:    "fnv1a-abc12345",
+		LastTurnMs:    time.Now().UnixMilli(),
+	}
+	if !singleTurnHeavyAff.IsCacheSticky() {
+		t.Errorf("expected single turn session with heavy context (>=8000 tokens) to be CacheSticky")
+	}
+
+	// Expired session should not be cache-sticky
+	expiredAff := SessionAffinity{
+		SessionID:    "expired-session",
+		PoolID:       "Pool-01-gemini",
+		AccountEmail: "leader@gmail.com",
+		TurnCount:    5,
+		LastTurnMs:   time.Now().UnixMilli() - (6 * 60 * 1000), // 6 minutes ago (>5m TTL)
+	}
+	if expiredAff.IsCacheSticky() {
+		t.Errorf("expected expired session to not be CacheSticky")
+	}
+
 	// Validate Audit Events
 	audits, err := QueryAuditEvents(10)
 	if err != nil || len(audits) == 0 {

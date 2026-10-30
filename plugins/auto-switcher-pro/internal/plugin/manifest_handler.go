@@ -23,14 +23,15 @@ func isManifestPath(p string) bool {
 
 // ManifestResponse estructura la agregación O(1) de estado en RAM para clientes
 type ManifestResponse struct {
-	OK         bool                                  `json:"ok"`
-	Timestamp  int64                                 `json:"timestamp"`
-	Epoch      string                                `json:"epoch"`
-	Pools      []PoolDefinition                      `json:"pools"`
-	Telemetry  []AccountQuotaTelemetry               `json:"telemetry"`
-	Accounts   []ManifestAccountSummary              `json:"accounts"`
-	Lifecycle  *analytics.LifecycleSummary           `json:"lifecycle,omitempty"`
-	Lifecycles map[string]*analytics.LifecycleSummary `json:"lifecycles"`
+	OK                bool                                  `json:"ok"`
+	Timestamp         int64                                 `json:"timestamp"`
+	Epoch             string                                `json:"epoch"`
+	Pools             []PoolDefinition                      `json:"pools"`
+	Telemetry         []AccountQuotaTelemetry               `json:"telemetry"`
+	Accounts          []ManifestAccountSummary              `json:"accounts"`
+	StandaloneAliases map[string]string                     `json:"standalone_aliases,omitempty"`
+	Lifecycle         *analytics.LifecycleSummary           `json:"lifecycle,omitempty"`
+	Lifecycles        map[string]*analytics.LifecycleSummary `json:"lifecycles"`
 }
 
 type ManifestAccountSummary struct {
@@ -39,6 +40,7 @@ type ManifestAccountSummary struct {
 	PoolID          string  `json:"pool_id,omitempty"`
 	BasePrefix      string  `json:"base_prefix,omitempty"`
 	Role            string  `json:"role"` // "leader", "reserve", "unassigned"
+	Alias           string  `json:"alias,omitempty"`
 	Window5hPct     float64 `json:"window_5h_pct"`
 	WeeklyPct       float64 `json:"weekly_pct"`
 	Window5hResetIn int64   `json:"window_5h_reset_in"`
@@ -187,6 +189,7 @@ func handleManifestHTTP(req ManagementRequestPayload) ([]byte, error) {
 			}
 
 			prefix := ""
+			prov := ""
 			accountLabel := email
 			if data, err := os.ReadFile(filepath.Join(authDir, cleanAuth)); err == nil {
 				var cred struct {
@@ -207,7 +210,25 @@ func handleManifestHTTP(req ManagementRequestPayload) ([]byte, error) {
 					} else if cred.Email != "" {
 						accountLabel = cred.Email
 					}
+					prov = cred.Provider
+					if prov == "" {
+						prov = cred.Type
+					}
 				}
+			}
+			if prov == "" {
+				if strings.HasPrefix(cleanAuth, "antigravity-") {
+					prov = "antigravity"
+				} else if strings.HasPrefix(cleanAuth, "codex-") {
+					prov = "codex"
+				} else if strings.HasPrefix(cleanAuth, "claude-") {
+					prov = "claude"
+				}
+			}
+
+			alias := ""
+			if reg != nil {
+				alias = reg.GetOrAssignStandaloneAlias(cleanAuth, prov)
 			}
 
 			stab, _ := analytics.QueryAccountStability(email)
@@ -218,6 +239,7 @@ func handleManifestHTTP(req ManagementRequestPayload) ([]byte, error) {
 				PoolID:          "",
 				BasePrefix:      prefix,
 				Role:            "unassigned",
+				Alias:           alias,
 				Window5hPct:     w5h,
 				WeeklyPct:       wWeekly,
 				Window5hResetIn: w5hResetIn,
@@ -252,15 +274,21 @@ func handleManifestHTTP(req ManagementRequestPayload) ([]byte, error) {
 		lifecycleSumm, _ = analytics.GetLifecycleSummary(targetPoolID, "24h")
 	}
 
+	var allStandaloneAliases map[string]string
+	if reg != nil {
+		allStandaloneAliases = reg.GetAllStandaloneAliases()
+	}
+
 	resp := ManifestResponse{
-		OK:         true,
-		Timestamp:  time.Now().Unix(),
-		Epoch:      epochStr,
-		Pools:      pools,
-		Telemetry:  liveQuotas,
-		Accounts:   accountSummaries,
-		Lifecycle:  lifecycleSumm,
-		Lifecycles: lifecyclesByPool,
+		OK:                true,
+		Timestamp:         time.Now().Unix(),
+		Epoch:             epochStr,
+		Pools:             pools,
+		Telemetry:         liveQuotas,
+		Accounts:          accountSummaries,
+		StandaloneAliases: allStandaloneAliases,
+		Lifecycle:         lifecycleSumm,
+		Lifecycles:        lifecyclesByPool,
 	}
 
 	return jsonManagementResponse(http.StatusOK, resp)

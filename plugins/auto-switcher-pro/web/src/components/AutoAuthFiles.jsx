@@ -727,6 +727,7 @@ export default function AutoAuthFiles({
           classification,
           fileName: classification.fileName,
           prefix: classification.prefix || '',
+          alias: node.alias || node.data?.alias || classification.alias || '',
           maskedEmail: classification.maskedEmail,
           provider: node.data?.provider || classification.provider || 'direct',
           exclusionBadges: classification.exclusionBadges || [],
@@ -1503,11 +1504,13 @@ export default function AutoAuthFiles({
                           <span
                             className="badge-prefix-hero"
                             style={{
-                              background: '#475569',
-                              color: '#ffffff',
+                              background: scard.alias ? 'rgba(56, 189, 248, 0.25)' : '#475569',
+                              color: scard.alias ? '#38bdf8' : '#ffffff',
+                              border: scard.alias ? '1px solid rgba(56, 189, 248, 0.4)' : 'none',
+                              fontWeight: 700,
                             }}
                           >
-                            🏷️ [{scard.prefix || 'directo'}]
+                            🏷️ [{scard.alias || scard.prefix || 'directo'}]
                           </span>
                           <span className={`badge-role ${roleBadgeClass}`}>
                             {familyTitle}

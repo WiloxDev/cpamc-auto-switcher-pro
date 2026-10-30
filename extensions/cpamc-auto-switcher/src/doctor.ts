@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { resolveCpamcBaseUrl, resolveManagementKey } from "./provider.js";
+import { querySwitcherAccounts } from "./store.js";
 
 export interface DoctorCheckResult {
 	name: string;
@@ -190,6 +191,30 @@ export function formatDoctorOutput(report: DoctorReport): string {
 	return out;
 }
 
+export async function formatAccountsTable(): Promise<string> {
+	const accounts = await querySwitcherAccounts(true);
+	if (!accounts || accounts.length === 0) {
+		return "⚠️ No hay cuentas registradas en CPAMC.";
+	}
+
+	const lines = [
+		"┌───────┬────────────┬────────────────────────┬───────────┬─────────────┐",
+		"│ ALIAS │ PROVEEDOR  │ CUENTA (OFUSCADA)      │ 5H DISP.  │ SEMANAL     │",
+		"├───────┼────────────┼────────────────────────┼───────────┼─────────────┤",
+	];
+
+	for (const acc of accounts) {
+		const alias = (acc.alias || (acc.status === "[OTHER]" ? "LIBRE" : acc.prefix || "-")).padEnd(5);
+		const prov = (acc.provider || "cpamc").slice(0, 10).padEnd(10);
+		const email = (acc.accountId || "-").slice(0, 22).padEnd(22);
+		const c5h = (acc.minAvailable || "-").padEnd(9);
+		const cWk = (acc.consumedWeekly ? `${100 - parseInt(acc.consumedWeekly)}%` : "-").padEnd(11);
+		lines.push(`│ ${alias} │ ${prov} │ ${email} │ ${c5h} │ ${cWk} │`);
+	}
+	lines.push("└───────┴────────────┴────────────────────────┴───────────┴─────────────┘");
+	return lines.join("\n");
+}
+
 export function registerDoctorCommand(pi: ExtensionAPI): void {
 	pi.registerCommand("cpamc", {
 		description: "Diagnóstico y control del ecosistema CPAMC Auto-Switcher (/cpamc doctor [fix])",
@@ -222,6 +247,15 @@ export function registerDoctorCommand(pi: ExtensionAPI): void {
 				return;
 			}
 
+			if (sub === "accounts" || sub === "alias" || sub === "aliases") {
+				const output = await formatAccountsTable();
+				console.log(output);
+				if (ctx.hasUI) {
+					ctx.ui.notify?.(output, "info");
+				}
+				return;
+			}
+
 			if (sub === "fix") {
 				await executeAutoFix(ctx);
 				return;
@@ -229,6 +263,17 @@ export function registerDoctorCommand(pi: ExtensionAPI): void {
 
 			if (ctx.hasUI) {
 				ctx.ui.notify?.("Uso: /cpamc doctor [fix]", "info");
+			}
+		},
+	});
+
+	pi.registerCommand("cpamc-accounts", {
+		description: "Muestra la correspondencia entre alias (CX1, AG1...) y cuentas en CPAMC",
+		handler: async (_args: any, ctx: any) => {
+			const output = await formatAccountsTable();
+			console.log(output);
+			if (ctx.hasUI) {
+				ctx.ui.notify?.(output, "info");
 			}
 		},
 	});

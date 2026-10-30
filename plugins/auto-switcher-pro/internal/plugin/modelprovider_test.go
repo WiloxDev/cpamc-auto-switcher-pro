@@ -1214,3 +1214,156 @@ func TestSchedulerPick_ProjectAwareCacheAffinity(t *testing.T) {
 		t.Errorf("expected Project A to remain pinned to antigravity-proj-a.json, got %s", respA2.AuthID)
 	}
 }
+
+func TestSchedulerPick_CacheStickyDynamicHysteresis(t *testing.T) {
+	registry := testModelProviderRegistry(t)
+	previous := activeRegistry
+	activeRegistry = func() *PoolRegistry { return registry }
+	t.Cleanup(func() {
+		activeRegistry = previous
+		resetInFlightForTest()
+	})
+
+	sessionID := "sticky-test-session-cache-001"
+	poolID := "Pool-01-gemini"
+
+	// Pool con líder a@gmail.com y reserva b@gmail.com
+	p := PoolDefinition{
+		ID:         poolID,
+		BasePrefix: "agy",
+		Family:     "gemini",
+		Members: []string{
+			"antigravity-a@gmail.com.json",
+			"antigravity-b@gmail.com.json",
+		},
+		ActiveLeader: "antigravity-a@gmail.com.json",
+		Policy: PoolPolicy{
+			TargetModels: []string{"gemini-3.8-flash-high"},
+		},
+	}
+	_ = registry.SavePool(p)
+
+	// Simular telemetría de cuotas:
+	// Líder a@gmail.com tiene 16% de cuota en 5h (zona de peligro normal <20%, pero >10% sticky floor)
+	// Reserva b@gmail.com tiene 90% (+74% de ventaja)
+	pred := GetPredictiveEngine()
+	pred.RecordLiveQuota(AccountQuotaTelemetry{
+		AccountKey:  "a@gmail.com",
+		Family:      "gemini",
+		Window5hPct: 16.0,
+		WeeklyPct:   70.0,
+		UpdatedAt:   time.Now(),
+	})
+	pred.RecordLiveQuota(AccountQuotaTelemetry{
+		AccountKey:  "b@gmail.com",
+		Family:      "gemini",
+		Window5hPct: 90.0,
+		WeeklyPct:   90.0,
+		UpdatedAt:   time.Now(),
+	})
+
+	// 1. Caso NO sticky (TurnCount = 0 o sin sesión):
+	// Debe rotar preventivamente a la reserva porque 16% < 20% y delta > 35%.
+	reqNormal := schedulerPickRequest{
+		Provider: "antigravity",
+		Model:    "gemini-3.8-flash-high",
+		Options: schedulerOptions{
+			Metadata: map[string]any{
+				"requested_model": "agy/gemini-3.8-flash-high",
+				"session_id":      "fresh-new-session",
+			},
+		},
+		Candidates: []schedulerCandidate{
+			{ID: "antigravity-a@gmail.com.json", Provider: "antigravity", Status: "active"},
+			{ID: "antigravity-b@gmail.com.json", Provider: "antigravity", Status: "active"},
+		},
+	}
+	respNormal := handleSchedulerPick(reqNormal)
+	if !respNormal.Handled {
+		t.Fatalf("expected handled pick for normal session")
+	}
+	if respNormal.AuthID != "antigravity-b@gmail.com.json" {
+		t.Errorf("expected normal session to rotate to reserve b@gmail.com.json, got %s", respNormal.AuthID)
+	}
+
+	// 2. Caso CacheSticky: registrar sesión multiturno activa (turn >= 2, TTL fresco)
+	analytics.SetSessionAffinity(analytics.SessionAffinity{
+		SessionID:    sessionID,
+		PoolID:       poolID,
+		AccountEmail: "a@gmail.com",
+		LastTurnMs:   time.Now().UnixMilli(),
+	})
+	analytics.FlushWriteQueueForTest()
+	analytics.SetSessionAffinity(analytics.SessionAffinity{
+		SessionID:    sessionID,
+		PoolID:       poolID,
+		AccountEmail: "a@gmail.com",
+		LastTurnMs:   time.Now().UnixMilli(),
+	})
+	analytics.FlushWriteQueueForTest()
+
+	aff, ok := analytics.GetSessionAffinity(sessionID, poolID)
+	if !ok || !aff.IsCacheSticky() {
+		t.Fatalf("expected session affinity to be CacheSticky, got ok=%v, aff=%+v", ok, aff)
+	}
+
+	// Enviar petición con la sesión multiturno activa:
+	reqSticky := schedulerPickRequest{
+		Provider: "antigravity",
+		Model:    "gemini-3.8-flash-high",
+		Options: schedulerOptions{
+			Metadata: map[string]any{
+				"requested_model": "agy/gemini-3.8-flash-high",
+				"session_id":      sessionID,
+			},
+		},
+		Candidates: []schedulerCandidate{
+			{ID: "antigravity-a@gmail.com.json", Provider: "antigravity", Status: "active"},
+			{ID: "antigravity-b@gmail.com.json", Provider: "antigravity", Status: "active"},
+		},
+	}
+	respSticky := handleSchedulerPick(reqSticky)
+	if !respSticky.Handled {
+		t.Fatalf("expected handled pick for sticky session")
+	}
+	// Debe mantenerse en el líder a@gmail.com para salvar el Prompt Cache
+	if respSticky.AuthID != "antigravity-a@gmail.com.json" {
+		t.Errorf("expected sticky session to preserve leader a@gmail.com.json, got %s", respSticky.AuthID)
+	}
+
+	// 3. Caso Context-Aware Turn 1 Sticky: Sesión nueva en Turno 1 con X-Context-Tokens >= 8000
+	sessionTurn1Heavy := fmt.Sprintf("heavy-turn-1-%d", time.Now().UnixNano())
+	reqHeavyTurn1 := schedulerPickRequest{
+		Provider: "antigravity",
+		Model:    "gemini-3.8-flash-high",
+		Options: schedulerOptions{
+			Metadata: map[string]any{
+				"requested_model": "agy/gemini-3.8-flash-high",
+				"session_id":      sessionTurn1Heavy,
+			},
+			Headers: map[string][]string{
+				"X-Context-Tokens": {"12500"},
+				"X-Prefix-Hash":    {"hash-12345"},
+			},
+		},
+		Candidates: []schedulerCandidate{
+			{ID: "antigravity-a@gmail.com.json", Provider: "antigravity", Status: "active"},
+			{ID: "antigravity-b@gmail.com.json", Provider: "antigravity", Status: "active"},
+		},
+	}
+	respHeavy := handleSchedulerPick(reqHeavyTurn1)
+	if !respHeavy.Handled {
+		t.Fatalf("expected handled pick for heavy turn 1 session")
+	}
+	// Post-procesado debe guardar afinidad con ContextTokens y PrefixHash
+	analytics.FlushWriteQueueForTest()
+	affHeavy, okHeavy := analytics.GetSessionAffinity(sessionTurn1Heavy, poolID)
+	if !okHeavy || affHeavy.ContextTokens != 12500 || affHeavy.PrefixHash != "hash-12345" {
+		t.Fatalf("expected session affinity to record context tokens & prefix hash, got: %+v", affHeavy)
+	}
+	if !affHeavy.IsCacheSticky() {
+		t.Fatalf("expected session with 12500 context tokens to be CacheSticky from turn 1")
+	}
+	time.Sleep(50 * time.Millisecond) // Allow async shadow warmup goroutine to finish cleanly
+}
+

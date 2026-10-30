@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -828,6 +829,64 @@ func extractSessionID(req schedulerPickRequest) string {
 	return ""
 }
 
+// extractContextTokens extracts declared or estimated context tokens from request headers/metadata.
+func extractContextTokens(req schedulerPickRequest) int64 {
+	if req.Options.Headers != nil {
+		for k, vals := range req.Options.Headers {
+			if strings.EqualFold(k, "x-context-tokens") || strings.EqualFold(k, "x-prompt-tokens") || strings.EqualFold(k, "x-total-tokens") {
+				if len(vals) > 0 {
+					if n, err := strconv.ParseInt(strings.TrimSpace(vals[0]), 10, 64); err == nil && n > 0 {
+						return n
+					}
+				}
+			}
+		}
+	}
+	if req.Options.Metadata != nil {
+		for _, key := range []string{"context_tokens", "prompt_tokens", "tokens", "input_tokens"} {
+			if v, ok := req.Options.Metadata[key]; ok {
+				switch val := v.(type) {
+				case int:
+					return int64(val)
+				case int64:
+					return val
+				case float64:
+					return int64(val)
+				case string:
+					if n, err := strconv.ParseInt(strings.TrimSpace(val), 10, 64); err == nil && n > 0 {
+						return n
+					}
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// extractPrefixFingerprint computes a fast, deterministic fingerprint of the prompt prefix
+// from header hints or metadata to enable Cache Breakpoint matching across turns.
+func extractPrefixFingerprint(req schedulerPickRequest) string {
+	if req.Options.Headers != nil {
+		for k, vals := range req.Options.Headers {
+			if strings.EqualFold(k, "x-prefix-hash") || strings.EqualFold(k, "x-cache-key") || strings.EqualFold(k, "x-prompt-hash") {
+				if len(vals) > 0 && strings.TrimSpace(vals[0]) != "" {
+					return strings.TrimSpace(vals[0])
+				}
+			}
+		}
+	}
+	if req.Options.Metadata != nil {
+		for _, key := range []string{"prefix_hash", "cache_key", "prompt_hash", "prefix_fingerprint"} {
+			if v, ok := req.Options.Metadata[key]; ok {
+				if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+					return strings.TrimSpace(s)
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // extractTaskType classifies the request into HEAVY (subagents, deep research, heavy audits)
 // or LIGHT (routine queries, simple turns) based on headers and metadata.
 func extractTaskType(req schedulerPickRequest) string {
@@ -882,6 +941,47 @@ func schedulerPickCascade(registry *PoolRegistry, req schedulerPickRequest) sche
 			}
 		}
 	}
+
+	// 0) Standalone Alias direct route (e.g. X-Account-Alias: CX1 or model cx1/...)
+	aliasTarget := ""
+	if req.Options.Headers != nil {
+		for k, vals := range req.Options.Headers {
+			if strings.EqualFold(k, "x-account-alias") && len(vals) > 0 {
+				aliasTarget = strings.ToUpper(strings.TrimSpace(vals[0]))
+				break
+			}
+		}
+	}
+	if aliasTarget == "" && req.Options.Metadata != nil {
+		if v, ok := req.Options.Metadata["account_alias"]; ok {
+			if s, ok := v.(string); ok {
+				aliasTarget = strings.ToUpper(strings.TrimSpace(s))
+			}
+		}
+	}
+	if aliasTarget == "" && strings.Contains(originalModel, "/") {
+		prefixPart := originalModel[:strings.Index(originalModel, "/")]
+		if strings.HasPrefix(prefixPart, "cx") || strings.HasPrefix(prefixPart, "ag") || strings.HasPrefix(prefixPart, "cl") || strings.HasPrefix(prefixPart, "ar") || strings.HasPrefix(prefixPart, "oc") {
+			aliasTarget = strings.ToUpper(strings.TrimSpace(prefixPart))
+		}
+	}
+
+	if aliasTarget != "" {
+		if matchedAuth, ok := registry.GetAccountForAlias(aliasTarget); ok {
+			cleanTarget := strings.ToLower(matchedAuth)
+			for _, cand := range req.Candidates {
+				candID := strings.ToLower(cand.ID)
+				if candID == cleanTarget || strings.HasSuffix(candID, "/"+cleanTarget) || strings.HasSuffix(cleanTarget, "/"+candID) ||
+					strings.TrimSuffix(candID, ".json") == strings.TrimSuffix(cleanTarget, ".json") {
+					return schedulerPickResponse{
+						Handled: true,
+						AuthID:  cand.ID,
+					}
+				}
+			}
+		}
+	}
+
 	var pool *PoolDefinition
 	if slash := strings.Index(originalModel, "/"); slash > 0 {
 		if candidate, ok := registry.GetPool(originalModel[:slash]); ok && candidate.IsEnabled() {
@@ -1107,9 +1207,28 @@ func schedulerPickCascade(registry *PoolRegistry, req schedulerPickRequest) sche
 	// 2) Exigir histeresis matemática antes de rotar preventivamente:
 	//    - La cuota del líder debe estar en zona de peligro (< 20% en ventana de 5h).
 	//    - Y la reserva candidata DEBE tener al menos +35% (Δ >= 35%) de ventaja confirmada.
+	// Cache-Aware Dynamic Hysteresis:
+	// Si la sesión es multiturno y tiene interacción reciente (TTL 5 min), marcar como CacheSticky.
+	// En sesiones CacheSticky, el líder se protege con mayor firmeza para evitar la penalización
+	// de re-cebar el prompt cache en frío (12.5x coste de tokens y latencia TTFT de 5s).
+	isSessionCacheSticky := false
+	if sessionID != "" {
+		if aff, ok := analytics.GetSessionAffinity(sessionID, pool.ID); ok && aff.IsCacheSticky() {
+			isSessionCacheSticky = true
+		}
+	}
+
 	hasHealthyReserve := false
 	reserveWithBetterQuota := false
 	leaderQuota, hasLeaderQuota := predEngine.GetLiveQuota(leaderEmail, poolFam)
+
+	// En sesiones normales, el umbral de peligro es < 20.0%. En sesiones CacheSticky, el umbral es < 10.0%.
+	dangerZoneFloor := 20.0
+	requiredDelta := 35.0
+	if isSessionCacheSticky {
+		dangerZoneFloor = 10.0
+		requiredDelta = 45.0 // Exigir ventaja aún más contundente a la reserva para justificar cold start
+	}
 
 	if len(cascade) > 1 {
 		for _, resAuth := range cascade[1:] {
@@ -1118,8 +1237,8 @@ func schedulerPickCascade(registry *PoolRegistry, req schedulerPickRequest) sche
 				if hasLeaderQuota {
 					resEmail := strings.TrimSuffix(strings.TrimPrefix(resAuth, "antigravity-"), ".json")
 					if resQ, ok := predEngine.GetLiveQuota(resEmail, poolFam); ok {
-						// Histeresis estricta: líder en zona de peligro (< 20%) y reserva con ventaja >= +35%
-						if leaderQuota.Window5hPct < 20.0 && (resQ.Window5hPct-leaderQuota.Window5hPct) >= 35.0 {
+						// Histeresis dinámica: líder en zona de peligro y reserva con ventaja confirmada
+						if leaderQuota.Window5hPct < dangerZoneFloor && (resQ.Window5hPct-leaderQuota.Window5hPct) >= requiredDelta {
 							reserveWithBetterQuota = true
 							break
 						}
@@ -1130,13 +1249,13 @@ func schedulerPickCascade(registry *PoolRegistry, req schedulerPickRequest) sche
 		}
 	}
 
-	// Si el líder tiene cooldown activo o cuota crítica (<15%), rotar si hay reserva disponible
-	// Para rotación preventiva: solo si líder <20% y la reserva tiene >= +35% de ventaja confirmada
+	// Si el líder tiene cooldown activo o cuota crítica (<10% en sticky / <15% normal), rotar si hay reserva disponible
+	// Para rotación preventiva: evaluar con ShouldPreventiveCoolSticky
 	skipLeaderPredictive := false
 	if hasHealthyReserve {
-		if predEngine.IsCriticalQuotaOrCooldown(leaderEmail, poolFam) {
+		if predEngine.IsCriticalQuotaOrCooldown(leaderEmail, poolFam) && !isSessionCacheSticky {
 			skipLeaderPredictive = true
-		} else if predEngine.ShouldPreventiveCool(leaderEmail, poolFam) && reserveWithBetterQuota {
+		} else if predEngine.ShouldPreventiveCoolSticky(leaderEmail, isSessionCacheSticky, poolFam) && reserveWithBetterQuota {
 			skipLeaderPredictive = true
 		}
 	}
@@ -1190,7 +1309,7 @@ func schedulerPickCascade(registry *PoolRegistry, req schedulerPickRequest) sche
 			for idx, authFile := range orderedCascade {
 				mEmail := strings.ToLower(strings.TrimSuffix(strings.TrimPrefix(authFile, "antigravity-"), ".json"))
 				if mEmail == affEmail {
-					if _, isAvail := available[strings.ToLower(authFile)]; isAvail && !predEngine.ShouldPreventiveCool(mEmail, poolFam) {
+					if _, isAvail := available[strings.ToLower(authFile)]; isAvail && !predEngine.ShouldPreventiveCoolSticky(mEmail, isSessionCacheSticky, poolFam) {
 						if idx > 0 {
 							matched := orderedCascade[idx]
 							orderedCascade = append(orderedCascade[:idx], orderedCascade[idx+1:]...)
@@ -1205,8 +1324,9 @@ func schedulerPickCascade(registry *PoolRegistry, req schedulerPickRequest) sche
 
 	// Adaptive Pacing: Si el pool completo experimenta fatiga colectiva severa
 	// O el líder individual supera el 80% de fatiga RPM pero conserva cuota de 5h:
-	// inyectar una micro-pausa adaptativa (250-350ms con jitter) para que el RPM de Google
+	// inyectar una micro-pausa adaptativa (250-450ms con jitter) para que el RPM del proveedor
 	// respire sin forzar una rotación innecesaria ni destruir el Prompt Cache.
+	// En sesiones CacheSticky, estirar la micro-pausa (hasta 450ms) antes de forzar failover.
 	if len(cascade) > 0 {
 		allFatigued := true
 		leaderFatigued := false
@@ -1217,7 +1337,7 @@ func schedulerPickCascade(registry *PoolRegistry, req schedulerPickRequest) sche
 				if idx == 0 && (fatiguePct >= 80.0 || isCooling) {
 					leaderFatigued = true
 				}
-				if fatiguePct < 80.0 && !isCooling && !predEngine.ShouldPreventiveCool(mEmail, poolFam) {
+				if fatiguePct < 80.0 && !isCooling && !predEngine.ShouldPreventiveCoolSticky(mEmail, isSessionCacheSticky, poolFam) {
 					allFatigued = false
 					if idx > 0 {
 						break
@@ -1229,7 +1349,11 @@ func schedulerPickCascade(registry *PoolRegistry, req schedulerPickRequest) sche
 			time.Sleep(350 * time.Millisecond)
 		} else if leaderFatigued {
 			// Micro-pacing suave para salvar el Prompt Cache ante ráfagas cortas
-			time.Sleep(250*time.Millisecond + time.Duration(time.Now().UnixNano()%70)*time.Millisecond)
+			basePacing := 250
+			if isSessionCacheSticky {
+				basePacing = 350 // Mayor tolerancia pasiva para conversaciones con caché caliente
+			}
+			time.Sleep(time.Duration(basePacing)*time.Millisecond + time.Duration(time.Now().UnixNano()%70)*time.Millisecond)
 		}
 	}
 
@@ -1275,15 +1399,41 @@ func schedulerPickCascade(registry *PoolRegistry, req schedulerPickRequest) sche
 
 			// Preservar afinidad de sesión para no invalidar el caché en turnos subsiguientes
 			turnCount := 1
+			contextTokens := extractContextTokens(req)
+			prefixHash := extractPrefixFingerprint(req)
 			if sessionID != "" {
 				if existingAff, ok := analytics.GetSessionAffinity(sessionID, pool.ID); ok {
 					turnCount = existingAff.TurnCount + 1
+					if contextTokens == 0 {
+						contextTokens = existingAff.ContextTokens
+					}
+					if prefixHash == "" {
+						prefixHash = existingAff.PrefixHash
+					}
 				}
 				analytics.SetSessionAffinity(analytics.SessionAffinity{
-					SessionID:    sessionID,
-					PoolID:       pool.ID,
-					AccountEmail: email,
+					SessionID:     sessionID,
+					PoolID:        pool.ID,
+					AccountEmail:  email,
+					ContextTokens: contextTokens,
+					PrefixHash:    prefixHash,
 				})
+			}
+
+			// Reserve Shadow Warmup Trigger:
+			// Si la cuenta que acaba de servir (líder activo) tiene cuota viva en la zona de advertencia (10% a 16%),
+			// disparar en segundo plano el precalentamiento (Shadow Warmup) de la Reserva #1 disponible en el pool.
+			// Así, si el líder termina de agotarse en las próximas peticiones, la reserva ya estará con socket TLS
+			// caliente y caché preparado, evitando un cold start de 5 segundos.
+			if len(orderedCascade) > 1 {
+				if curQ, ok := predEngine.GetLiveQuota(email, poolFam); ok && curQ.Window5hPct >= 10.0 && curQ.Window5hPct <= 16.0 {
+					for _, resAuth := range orderedCascade[1:] {
+						if _, isAvail := available[strings.ToLower(resAuth)]; isAvail {
+							TriggerReserveShadowWarmup(pool.ID, resAuth)
+							break
+						}
+					}
+				}
 			}
 
 			// Task Auto-Downgrade: if turnCount >= 2 on expensive Claude reasoning pools or requested via header

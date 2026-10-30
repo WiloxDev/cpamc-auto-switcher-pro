@@ -157,4 +157,80 @@ func TestPredictiveEngine(t *testing.T) {
 	if pe.ShouldPreventiveCool(multiAcc, "gemini") {
 		t.Fatalf("expected account NOT to cool under Gemini when Gemini has 90%% quota")
 	}
+
+	// 7. Test Cache-Aware Dynamic Hysteresis (ShouldPreventiveCoolSticky)
+	stickyAcc := "sticky-cache-dev@gmail.com"
+	// Configurar cuenta con 16% de cuota en 5h (zona intermedia: <20% pero >=10%)
+	pe.RecordLiveQuota(AccountQuotaTelemetry{
+		AccountKey:  stickyAcc,
+		Window5hPct: 16.0,
+		WeeklyPct:   50.0,
+		UpdatedAt:   time.Now(),
+	})
+
+	// En modo normal (sin sticky / primera llamada de sesión): debe enfriar (<20%)
+	if !pe.ShouldPreventiveCool(stickyAcc) {
+		t.Fatalf("normal mode must cool account with 16%% quota (<20%% normal floor)")
+	}
+
+	// En modo CacheSticky: NO debe enfriar (piso relajado a 10% para salvar Prompt Cache)
+	if pe.ShouldPreventiveCoolSticky(stickyAcc, true) {
+		t.Fatalf("cache-sticky mode must NOT cool account with 16%% quota (floor is 10%%)")
+	}
+
+	// Si cae por debajo del 10% (ej. 8%): DEBE enfriar incluso en modo sticky para evitar un 429 inevitable
+	pe.RecordLiveQuota(AccountQuotaTelemetry{
+		AccountKey:  stickyAcc,
+		Window5hPct: 8.0,
+		WeeklyPct:   50.0,
+		UpdatedAt:   time.Now(),
+	})
+	if !pe.ShouldPreventiveCoolSticky(stickyAcc, true) {
+		t.Fatalf("cache-sticky mode MUST cool account when quota drops below 10%% critical floor")
+	}
+
+	// Cooldown explícito (429 previo) DEBE enfriar siempre, incluso con isCacheSticky=true
+	pe.RecordLiveQuota(AccountQuotaTelemetry{
+		AccountKey:  stickyAcc,
+		Window5hPct: 80.0,
+		WeeklyPct:   80.0,
+		UpdatedAt:   time.Now(),
+	})
+	pe.SetCooldown(stickyAcc, 10*time.Minute)
+	if !pe.ShouldPreventiveCoolSticky(stickyAcc, true) {
+		t.Fatalf("explicit cooldown must always trigger cooling even in cache-sticky mode")
+	}
+
+	// 8. Test Velocity-Aware Floor Protection against Leader Starvation (Cliff Exhaustion)
+	// Si la cuenta tiene cuota baja (12% en 5h) pero velocidad de consumo extrema (>85% límite horario),
+	// el piso de cuota debe elevarse dinámicamente a 15% para evitar que caiga al 0% de golpe en mitad de stream.
+	pe.SetConfig(PredictiveConfig{
+		Enabled:        true,
+		MaxReqsPerHour: 10,
+		ThresholdPct:   80.0,
+		CoolingMinutes: 10,
+	})
+	velocityAcc := "velocity-starve-test@gmail.com"
+	pe.RecordLiveQuota(AccountQuotaTelemetry{
+		AccountKey:  velocityAcc,
+		Window5hPct: 12.0, // Zona 10-15%
+		WeeklyPct:   60.0,
+		UpdatedAt:   time.Now(),
+	})
+
+	// Con baja velocidad (0 requests en la hora): Se permite sticky a 12% (piso 10%)
+	if pe.ShouldPreventiveCoolSticky(velocityAcc, true) {
+		t.Fatalf("low velocity sticky account with 12%% quota should remain sticky")
+	}
+
+	// Simular ráfaga extrema de 9 peticiones sobre un límite de 10 (90% de velocidad horaria)
+	for i := 0; i < 9; i++ {
+		pe.RecordActivity(velocityAcc)
+	}
+
+	// Ahora, con 90% de velocidad y 12% de cuota, DEBE enfriar preventivamente para proteger la sesión
+	// contra el colapso brusco al 0% (Leader Starvation protection)
+	if !pe.ShouldPreventiveCoolSticky(velocityAcc, true) {
+		t.Fatalf("high velocity (>85%%) sticky account with 12%% quota MUST trigger preventive cooling to avoid cliff drop to 0%%")
+	}
 }

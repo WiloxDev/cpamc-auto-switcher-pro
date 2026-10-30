@@ -115,6 +115,43 @@ func StartGhostWarmupDaemon() {
 	})
 }
 
+// TriggerReserveShadowWarmup runs an asynchronous background warmup specifically for the top
+// healthy reserve of a pool when the leader enters the danger zone (e.g. 10% - 16% remaining quota).
+// It pre-clears cooldowns and primes prompt cache so the subsequent failover experiences zero cold-start delay.
+func TriggerReserveShadowWarmup(poolID string, reserveAuth string) {
+	if poolID == "" || reserveAuth == "" {
+		return
+	}
+	go func() {
+		reserveEmail := strings.TrimSuffix(strings.TrimPrefix(reserveAuth, "antigravity-"), ".json")
+		now := time.Now()
+
+		warmupMu.Lock()
+		lastWarmup, alreadyWarmed := warmedAccounts[reserveEmail]
+		if alreadyWarmed && now.Sub(lastWarmup) < 5*time.Minute {
+			warmupMu.Unlock()
+			return
+		}
+		warmedAccounts[reserveEmail] = now
+		warmupMu.Unlock()
+
+		if hostCaller != nil {
+			_, _ = hostCaller("host.routing.reset_cooldown", map[string]any{"account": reserveAuth})
+		}
+
+		analytics.RecordAuditEvent(analytics.AuditEvent{
+			PoolID:         poolID,
+			EventType:      "RESERVE_SHADOW_WARMUP",
+			TriggerReason:  "leader_danger_zone_10_16_pct",
+			PreviousLeader: "",
+			NewLeader:      reserveEmail,
+			LatencyMs:      1,
+			StatusCode:     200,
+			DetailsJSON:    fmt.Sprintf(`{"status":"reserve_shadow_primed","reserve":"%s"}`, reserveAuth),
+		})
+	}()
+}
+
 // TriggerTriageShadowWarmup executes an async predictive pre-warming of designated pools
 // during orchestrator triage (before subagents like 00-discovery or 02-apply are even invoked).
 // It warms the TLS socket and pre-primes prompt cache without adding any latency to the orchestrator turn.
@@ -155,7 +192,6 @@ func TriggerTriageShadowWarmup(targetPools []string) {
 			warmedAccounts[targetEmail] = now
 			warmupMu.Unlock()
 
-			// Preemptively clear residual cooldowns on the host if bridge is present
 			if hostCaller != nil {
 				_, _ = hostCaller("host.routing.reset_cooldown", map[string]any{"account": targetAuth})
 			}
@@ -173,3 +209,4 @@ func TriggerTriageShadowWarmup(targetPools []string) {
 		}
 	}()
 }
+

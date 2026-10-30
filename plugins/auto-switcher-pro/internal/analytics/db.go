@@ -185,6 +185,8 @@ func InitDB() (*sql.DB, error) {
 		}
 		// Non-destructive migrations
 		_, _ = db.Exec(`ALTER TABLE session_affinity ADD COLUMN turn_count INTEGER DEFAULT 1;`)
+		_, _ = db.Exec(`ALTER TABLE session_affinity ADD COLUMN context_tokens INTEGER DEFAULT 0;`)
+		_, _ = db.Exec(`ALTER TABLE session_affinity ADD COLUMN prefix_hash TEXT DEFAULT '';`)
 		_, _ = db.Exec(`ALTER TABLE agent_profiles ADD COLUMN auto_downgrade INTEGER DEFAULT 0;`)
 		_, _ = db.Exec(`ALTER TABLE agent_profiles ADD COLUMN max_claude_turns INTEGER DEFAULT 3;`)
 
@@ -235,11 +237,32 @@ type AccountHealth struct {
 
 // SessionAffinity maps an active agent session to a pool account for Prompt Cache preservation.
 type SessionAffinity struct {
-	SessionID    string `json:"session_id"`
-	PoolID       string `json:"pool_id"`
-	AccountEmail string `json:"account_email"`
-	TurnCount    int    `json:"turn_count"`
-	LastTurnMs   int64  `json:"last_turn_ms"`
+	SessionID     string `json:"session_id"`
+	PoolID        string `json:"pool_id"`
+	AccountEmail  string `json:"account_email"`
+	TurnCount     int    `json:"turn_count"`
+	ContextTokens int64  `json:"context_tokens"`
+	PrefixHash    string `json:"prefix_hash"`
+	LastTurnMs    int64  `json:"last_turn_ms"`
+}
+
+// IsCacheSticky returns true if the session qualifies as a warm prompt cache holder:
+// 1. Either it is an active multi-turn conversation (TurnCount >= 2), OR
+// 2. It holds a dense context footprint (ContextTokens >= 8,000, e.g. subagents, deep research, or project instructions),
+// PROVIDED the last interaction occurred within the prompt cache TTL window (5 minutes / 300,000ms).
+// Under CacheSticky state, dynamic hysteresis protects the active leader from premature rotation,
+// avoiding cold cache prefill penalties (12.5x token cost and high TTFT).
+func (sa SessionAffinity) IsCacheSticky() bool {
+	if sa.LastTurnMs <= 0 {
+		return false
+	}
+	now := time.Now().UnixMilli()
+	// 5-minute sliding TTL
+	if (now - sa.LastTurnMs) > 5*60*1000 {
+		return false
+	}
+	// Multi-turn session OR heavy initial context prompt
+	return sa.TurnCount >= 2 || sa.ContextTokens >= 8000
 }
 
 // AuditEvent represents a rotation or rebalance decision.
@@ -405,13 +428,15 @@ func executeWriteTask(db *sql.DB, task writeTask) {
 			aff.LastTurnMs = time.Now().UnixMilli()
 		}
 		stmt := `INSERT INTO session_affinity (
-			session_id, pool_id, account_email, turn_count, last_turn_ms
-		) VALUES (?, ?, ?, 1, ?)
+			session_id, pool_id, account_email, turn_count, context_tokens, prefix_hash, last_turn_ms
+		) VALUES (?, ?, ?, 1, ?, ?, ?)
 		ON CONFLICT(session_id, pool_id) DO UPDATE SET
 			account_email=excluded.account_email,
 			turn_count=session_affinity.turn_count + 1,
+			context_tokens=CASE WHEN excluded.context_tokens > 0 THEN excluded.context_tokens ELSE session_affinity.context_tokens END,
+			prefix_hash=CASE WHEN excluded.prefix_hash != '' THEN excluded.prefix_hash ELSE session_affinity.prefix_hash END,
 			last_turn_ms=excluded.last_turn_ms`
-		_, _ = db.Exec(stmt, aff.SessionID, aff.PoolID, aff.AccountEmail, aff.LastTurnMs)
+		_, _ = db.Exec(stmt, aff.SessionID, aff.PoolID, aff.AccountEmail, aff.ContextTokens, aff.PrefixHash, aff.LastTurnMs)
 
 	case "audit":
 		evt, ok := task.data.(AuditEvent)
@@ -571,7 +596,7 @@ func GetSessionAffinity(sessionID, poolID string) (SessionAffinity, bool) {
 	}
 
 	var aff SessionAffinity
-	query := `SELECT session_id, pool_id, account_email, turn_count, last_turn_ms
+	query := `SELECT session_id, pool_id, account_email, turn_count, COALESCE(context_tokens, 0), COALESCE(prefix_hash, ''), last_turn_ms
 		FROM session_affinity
 		WHERE session_id = ? AND pool_id = ?`
 	err = db.QueryRow(query, sessionID, poolID).Scan(
@@ -579,6 +604,8 @@ func GetSessionAffinity(sessionID, poolID string) (SessionAffinity, bool) {
 		&aff.PoolID,
 		&aff.AccountEmail,
 		&aff.TurnCount,
+		&aff.ContextTokens,
+		&aff.PrefixHash,
 		&aff.LastTurnMs,
 	)
 	if err != nil {

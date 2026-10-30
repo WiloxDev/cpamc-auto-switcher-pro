@@ -28,7 +28,7 @@ export async function resolve(specifier, context, nextResolve) {
 
 register("data:text/javascript," + encodeURIComponent(loaderCode));
 
-const { isCleanIncludedModel, buildPoolLabelMap, reconcileActivePoolFacades, initDynamicProvider, resolveManagementKeyWithDiagnostics, resolveCandidateBaseUrls, resolveCpamcBaseUrl, resolveCpamcSettings, buildPendingAccountsPlaceholderModel } = await import("./provider.js");
+const { isCleanIncludedModel, buildPoolLabelMap, reconcileActivePoolFacades, initDynamicProvider, resolveManagementKeyWithDiagnostics, resolveCandidateBaseUrls, resolveCpamcBaseUrl, resolveCpamcSettings, buildPendingAccountsPlaceholderModel, syncStandaloneSubproviders } = await import("./provider.js");
 
 describe("Dynamic Provider Filtering & Granular Coexistence", () => {
     it("evaluates universal base URL resolution cascade (env, custom port, fallbacks)", () => {
@@ -276,5 +276,109 @@ describe("Standalone OmniAuth Pro zero-collision prefixes (Fase 3 homologación)
         assert.equal(labels.get("agy"), "P1·LÍDER agy");
         assert.equal(labels.get("agy_1"), "P1·RESERVA agy_1");
         assert.equal(labels.get("nim_1"), "LIBRE nim_1");
+    });
+
+    it("syncStandaloneSubproviders registers dedicated providers with X-Account-Alias headers and filtered models", () => {
+        const registered: Record<string, any> = {};
+        const mockPi: any = {
+            registerProvider: (id: string, config: any) => {
+                registered[id] = config;
+            },
+            unregisterProvider: (id: string) => {
+                delete registered[id];
+            },
+        };
+
+        const standaloneAccounts = [
+            {
+                accountKey: "codex-account1.json",
+                email: "wil...dev@openai.com",
+                alias: "CX1",
+                provider: "codex",
+                maskedEmail: "wil...dev@openai.com",
+                excludedModels: new Set(["gpt-4-turbo"]),
+            },
+            {
+                accountKey: "codex-account2.json",
+                email: "wil...lab@openai.com",
+                alias: "CX2",
+                provider: "codex",
+                maskedEmail: "wil...lab@openai.com",
+                excludedModels: new Set<string>(),
+            },
+            {
+                accountKey: "antigravity-wilsonlavio7@gmail.com.json",
+                email: "wil...io7@gmail.com",
+                alias: "AG1",
+                provider: "antigravity",
+                maskedEmail: "wil...io7@gmail.com",
+                excludedModels: new Set<string>(),
+            },
+        ];
+
+        const rawModels = [
+            { id: "gpt-6.1-terra", display_name: "GPT-6.1 Terra", owned_by: "openai" },
+            { id: "gpt-4-turbo", display_name: "GPT-4 Turbo", owned_by: "openai" },
+            { id: "gemini-3-flash", display_name: "Gemini 3 Flash", owned_by: "google" },
+            { id: "claude-3-7-sonnet", display_name: "Claude 3.7 Sonnet", owned_by: "anthropic" },
+        ];
+
+        syncStandaloneSubproviders(mockPi, standaloneAccounts, rawModels, "http://127.0.0.1:8317", { "x-project-identity": "test-id" });
+
+        // Verificar que se registraron los 3 sub-proveedores
+        assert.ok(registered["cpamc - CX1"], "cpamc - CX1 must be registered");
+        assert.ok(registered["cpamc - CX2"], "cpamc - CX2 must be registered");
+        assert.ok(registered["cpamc - AG1"], "cpamc - AG1 must be registered");
+
+        // CX1 debe tener X-Account-Alias: CX1 y tener gpt-6.1-terra, pero NO gpt-4-turbo (por exclusión)
+        const cx1Config = registered["cpamc - CX1"];
+        assert.equal(cx1Config.headers["X-Account-Alias"], "CX1");
+        assert.equal(cx1Config.headers["x-project-identity"], "test-id");
+        const cx1ModelIds = cx1Config.models.map((m: any) => m.id);
+        assert.ok(cx1ModelIds.includes("gpt-6.1-terra"));
+        assert.equal(cx1ModelIds.includes("gpt-4-turbo"), false);
+        assert.equal(cx1ModelIds.includes("gemini-3-flash"), false);
+
+        // En /model, el providerBadge es [cpamc - CX1] y el name tiene el alias [CX1]
+        const terraModel = cx1Config.models.find((m: any) => m.id === "gpt-6.1-terra");
+        assert.equal(terraModel.provider, "cpamc - CX1");
+        assert.ok(terraModel.name.includes("[CX1]"));
+
+        // CX2 debe tener X-Account-Alias: CX2 y sí tener gpt-4-turbo
+        const cx2Config = registered["cpamc - CX2"];
+        assert.equal(cx2Config.headers["X-Account-Alias"], "CX2");
+        const cx2ModelIds = cx2Config.models.map((m: any) => m.id);
+        assert.ok(cx2ModelIds.includes("gpt-6.1-terra"));
+        assert.ok(cx2ModelIds.includes("gpt-4-turbo"));
+
+        // AG1 debe tener gemini-3-flash
+        const ag1Config = registered["cpamc - AG1"];
+        assert.equal(ag1Config.headers["X-Account-Alias"], "AG1");
+        const ag1ModelIds = ag1Config.models.map((m: any) => m.id);
+        assert.ok(ag1ModelIds.includes("gemini-3-flash"));
+        assert.equal(ag1ModelIds.includes("gpt-6.1-terra"), false);
+    });
+
+    it("suppresses bare models under cpamc when that provider has standalone aliases registered", () => {
+        const filterDataWithAliases = {
+            ...mockFilterData,
+            activeBareProviders: new Set(["codex", "antigravity"]),
+            standaloneAccounts: [
+                {
+                    accountKey: "codex-1.json",
+                    email: "wil...dev@openai.com",
+                    alias: "CX1",
+                    provider: "codex",
+                    maskedEmail: "wil...dev@openai.com",
+                    excludedModels: new Set<string>(),
+                },
+            ],
+        };
+
+        // Codex tiene alias CX1 -> se suprime el modelo plano gpt-6.1-terra de cpamc para evitar duplicado
+        assert.equal(isCleanIncludedModel("gpt-6.1-terra", filterDataWithAliases), false);
+
+        // Antigravity NO tiene alias en standaloneAccounts -> se conserva modelo plano de fallback
+        assert.equal(isCleanIncludedModel("gemini-3.8-flash-high", filterDataWithAliases), true);
     });
 });

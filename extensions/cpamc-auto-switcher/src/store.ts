@@ -90,6 +90,7 @@ export interface SwitcherAccount {
 	profile: string; // "default" (Gemini), "clau" (Claude), etc.
 	accountId: string;
 	prefix: string; // "agy", "agy_1", "agy_clau", "agy_clau_1", etc.
+	alias?: string; // "CX1", "AG1", "CL1", etc.
 	consumed5h: string;
 	consumedWeekly: string;
 	minAvailable: string;
@@ -310,12 +311,17 @@ export async function querySwitcherAccounts(force = false): Promise<SwitcherAcco
 									provider = "claude";
 								}
 
+								const alias = typeof a.alias === "string" && a.alias.trim()
+									? a.alias.trim()
+									: (mData.standalone_aliases?.[a.account_key] || undefined);
+
 								return {
 									status: isLeader ? "[ACTIVE]" : isUnassigned ? "[OTHER]" : "[RESERVE]",
 									provider,
 									profile: basePref,
 									accountId: a.email || maskEmailFromAuth(a.account_key),
 									prefix,
+									alias,
 									consumed5h: `${c5h}%`,
 									consumedWeekly: `${cWk}%`,
 									minAvailable: `${minPct}%`,
@@ -462,6 +468,7 @@ export function classifyModel(modelId: string, provider: string): ModelPoolClass
 	const isCpamc =
 		provider === "cpamc" ||
 		provider === "cliproxyapi" ||
+		provider.startsWith("cpamc - ") ||
 		trimmed.startsWith("cpamc/") ||
 		trimmed.startsWith("cliproxyapi/");
 
@@ -602,6 +609,23 @@ export function getRotationPairForModelSync(modelId: string, provider: string): 
 	// Si no tiene poolBase, es un modelo nativo CPAMC sin rotación (Solo Lectura)
 	if (!info.poolBase) {
 		const lowerModel = info.canonicalModelId.toLowerCase();
+
+		// Si el proveedor es un sub-proveedor de cuenta libre (ej. 'cpamc - CX1')
+		if (provider.startsWith("cpamc - ")) {
+			const targetAlias = provider.slice("cpamc - ".length).trim().toUpperCase();
+			const aliasAcc = accounts.find((a) => (a.alias && a.alias.toUpperCase() === targetAlias) || (a.prefix && a.prefix.toUpperCase() === targetAlias));
+			if (aliasAcc) {
+				return {
+					poolKey: `${aliasAcc.alias || targetAlias} (${info.canonicalModelId})`,
+					familyName: `Cuenta Libre ${aliasAcc.alias || targetAlias}`,
+					familyIcon: "⚡ ",
+					active: aliasAcc,
+					totalAccounts: 1,
+					isNativeReadOnly: true,
+				};
+			}
+		}
+
 		let nativeAcc = accounts.find((a) => {
 			if (a.status === "[OTHER]" || a.prefix === "-" || !a.prefix) {
 				if (lowerModel.includes("gemini") && a.provider === "antigravity") return true;
