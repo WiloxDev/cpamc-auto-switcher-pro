@@ -624,32 +624,36 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 		// Disparar chequeo no invasivo de actualización remota
 		void checkRemoteUpdate(ctx);
 
-		// Bus Reactivo Instantáneo (<5ms) por Archivo de Época Compartido
+		// Bus Reactivo Instantáneo (<5ms) por Archivo de Época Compartido y Snapshot de Telemetría
 		// Prioridad 1: CPAMC / CLIProxyAPI Console nativo (Linux, macOS M1-M4, Windows)
-		const candidateEpochPaths = [
-			// 1. CPAMC Console Canónico
+		const candidateSignalPaths = [
+			// 1. Archivos .epoch de señalización
 			join(homedir(), ".cli-proxy-api", "plugins", "auto-switcher-pro.epoch"),
 			join(homedir(), "Library", "Application Support", "cli-proxy-api", "plugins", "auto-switcher-pro.epoch"),
 			join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "cli-proxy-api", "plugins", "auto-switcher-pro.epoch"),
 			join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "cli-proxy-api", "plugins", "auto-switcher-pro.epoch"),
 			join(homedir(), "services", "cliproxy", "plugins", "auto-switcher-pro.epoch"),
-
-			// 2. Memoria compartida y temporales del sistema
 			"/dev/shm/auto-switcher-pro.epoch",
 			join(tmpdir(), "auto-switcher-pro.epoch"),
-
-			// 3. EasyCLIProxyAPI (Derivado Desktop)
 			join(homedir(), ".local", "share", "EasyCLIProxyAPI", "cpa-core", "plugins", "auto-switcher-pro.epoch"),
 			join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "EasyCLIProxyAPI", "cpa-core", "plugins", "auto-switcher-pro.epoch"),
 			join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "EasyCLIProxyAPI", "cpa-core", "plugins", "auto-switcher-pro.epoch"),
 			join(homedir(), "Library", "Application Support", "EasyCLIProxyAPI", "cpa-core", "plugins", "auto-switcher-pro.epoch"),
+
+			// 2. Archivos auto-switcher-pro-telemetry.json (snapshot generado atómicamente por el plugin)
+			"/dev/shm/auto-switcher-pro-telemetry.json",
+			join(homedir(), ".cli-proxy-api", "plugins", "auto-switcher-pro-telemetry.json"),
+			join(homedir(), "services", "cliproxy", "plugins", "auto-switcher-pro-telemetry.json"),
+			join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "cli-proxy-api", "plugins", "auto-switcher-pro-telemetry.json"),
+			join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "cli-proxy-api", "plugins", "auto-switcher-pro-telemetry.json"),
+			join(homedir(), ".local", "share", "EasyCLIProxyAPI", "cpa-core", "plugins", "auto-switcher-pro-telemetry.json"),
 		];
 		let shmDebounce: NodeJS.Timeout | null = null;
 
-		for (const epPath of candidateEpochPaths) {
+		for (const sigPath of candidateSignalPaths) {
 			try {
-				if (existsSync(epPath)) {
-					const w = watch(epPath, () => {
+				if (existsSync(sigPath)) {
+					const w = watch(sigPath, () => {
 						if (shmDebounce) clearTimeout(shmDebounce);
 						shmDebounce = setTimeout(async () => {
 							try {
@@ -668,24 +672,24 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 			} catch {}
 		}
 
-		// Intervalo en segundo plano cada 25s protegido contra stale context
+		// Keepalive pasivo cada 60s (orientado a eventos, actúa como red de seguridad sin saturar)
 		let ticks = 0;
 		timer = setInterval(async () => {
 			try {
-				await querySwitcherAccounts(true);
+				await querySwitcherAccounts(false);
 				await adapter?.update(false);
 
-				// Cada ~75 segundos (3 ticks de 25s), refrescar catálogo de modelos en segundo plano
+				// Cada ~120s (2 ticks), refrescar catálogo de modelos en segundo plano
 				ticks++;
 				try {
-					if (ticks % 3 === 0 && typeof ctx?.modelRegistry?.refresh === "function") {
+					if (ticks % 2 === 0 && typeof ctx?.modelRegistry?.refresh === "function") {
 						void ctx.modelRegistry.refresh({ allowNetwork: true }).catch(() => {});
 					}
 				} catch {}
 			} catch {
 				clearTimer();
 			}
-		}, 25_000);
+		}, 60_000);
 	});
 
 	// Reactividad ante eventos de sesión e interacción del usuario

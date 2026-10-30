@@ -4,7 +4,8 @@ import { homedir } from "node:os";
 import { resolveCandidateBaseUrls, resolveCpamcBaseUrl } from "./provider.js";
 
 const TIMEOUT_MS = 6000;
-export const QUOTA_REFRESH_MS = 25_000;
+export const QUOTA_REFRESH_MS = 60_000;
+export const DIRECT_FALLBACK_TTL_MS = 5 * 60 * 1000; // 5 minutos exactos hacia Google en modo fallback autónomo
 
 export interface RotationCauseItem {
 	time_str: string;
@@ -124,6 +125,8 @@ export interface ModelPoolClassification {
 let cachedAccounts: SwitcherAccount[] = [];
 let lastFetchTime = 0;
 let isFetching = false;
+let lastDirectFallbackFetchTime = 0;
+let cachedDirectFallbackAccounts: SwitcherAccount[] = [];
 
 export function setCachedAccountsForTesting(accounts: SwitcherAccount[]): void {
 	cachedAccounts = accounts;
@@ -728,9 +731,17 @@ export async function querySwitcherAccounts(force = false): Promise<SwitcherAcco
 
 		// Fallback gracioso 2: El plugin no está instalado ni hay estado guardado.
 		// Consultar directamente a Google las cuentas individuales OAuth presentes en disco.
+		// Respetar DIRECT_FALLBACK_TTL_MS (5 minutos) para proteger cuota de red hacia Google.
 		try {
+			if (cachedDirectFallbackAccounts.length > 0 && now - lastDirectFallbackFetchTime < DIRECT_FALLBACK_TTL_MS) {
+				cachedAccounts = cachedDirectFallbackAccounts;
+				lastFetchTime = Date.now();
+				return cachedAccounts;
+			}
 			const directList = await queryDirectAccountsFallback();
 			if (directList.length > 0) {
+				cachedDirectFallbackAccounts = directList;
+				lastDirectFallbackFetchTime = Date.now();
 				cachedAccounts = directList;
 				lastFetchTime = Date.now();
 			}
