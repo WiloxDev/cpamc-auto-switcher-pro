@@ -11,6 +11,7 @@ import (
 )
 
 const manifestRoutePath = "/auto-switcher-pro/manifest"
+const accountsRoutePath = "/auto-switcher-pro/accounts"
 
 func isManifestPath(p string) bool {
 	norm := strings.TrimSpace(p)
@@ -18,7 +19,7 @@ func isManifestPath(p string) bool {
 		norm = norm[:idx]
 	}
 	norm = strings.TrimRight(norm, "/")
-	return strings.HasSuffix(norm, manifestRoutePath)
+	return strings.HasSuffix(norm, manifestRoutePath) || strings.HasSuffix(norm, accountsRoutePath)
 }
 
 // ManifestResponse estructura la agregación O(1) de estado en RAM para clientes

@@ -28,6 +28,12 @@ import {
 import { saveProjectModel, getProjectModel, clearProjectModel } from "./src/project-model-store.js";
 import { runawayGuard } from "./src/guards.js";
 import { showIncidentModal } from "./src/incident-modal.js";
+import {
+	initWiloxLayoutManager,
+	readWiloxSettings,
+	writeWiloxSettings,
+	syncSidebarLayout,
+} from "./src/wilox-layout-manager.js";
 
 const execAsync = promisify(exec);
 const CURRENT_VERSION = "1.0.0";
@@ -848,5 +854,36 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 			description: "Alias de /incident para inspeccionar autopsia forense en CPAMC Console",
 			handler: handleIncidentCommand,
 		});
+		(pi as any).registerCommand("wilox", {
+			description: "Community (WiloxDev): Alterna el sidebar entre modo Compacto (38 cols) y Estándar (50 cols) o usa '/wilox 38|50'",
+			handler: async (args: string, ctx: ExtensionContext) => {
+				const current = readWiloxSettings();
+				const arg = args ? args.trim().toLowerCase() : "";
+				let target = current.sidebarWidth === 38 ? 50 : 38;
+				if (arg === "38" || arg === "compact" || arg === "on") target = 38;
+				if (arg === "50" || arg === "standard" || arg === "default" || arg === "off") target = 50;
+
+				writeWiloxSettings({
+					sidebarWidth: target,
+					sidebarBreakpoint: target <= 38 ? 115 : 140,
+					gap: target <= 38 ? 2 : 3,
+				});
+				syncSidebarLayout(target);
+
+				const label = target === 38 ? "Compacto (38 cols, ON)" : "Estándar (50 cols, OFF)";
+				if (ctx?.hasUI) {
+					ctx.ui.notify?.(`🌟 Community (WiloxDev): Sidebar configurado a ${label}. Se aplicará en el próximo arranque o recarga.`, "info");
+				} else {
+					console.log(`Community (WiloxDev): Sidebar configurado a ${label}`);
+				}
+			},
+		});
+	}
+
+	// Inicializar WiloxLayoutManager y asegurar auto-reparación
+	try {
+		initWiloxLayoutManager();
+	} catch (err: any) {
+		console.error("cpamc-auto-switcher: fallo al inicializar WiloxLayoutManager:", err?.message || err);
 	}
 }

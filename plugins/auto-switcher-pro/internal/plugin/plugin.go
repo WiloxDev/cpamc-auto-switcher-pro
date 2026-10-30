@@ -106,6 +106,11 @@ func HandlePluginMethod(method string, request []byte) ([]byte, error) {
 				},
 				{
 					"Method":      http.MethodGet,
+					"Path":        accountsRoutePath,
+					"Description": "Alias O(1) de telemetría de cuentas, balanceo y SQLite WAL",
+				},
+				{
+					"Method":      http.MethodGet,
 					"Path":        poolsRoutePath,
 					"Description": "Lista los pools de balanceo de carga registrados en el plugin",
 				},

@@ -70,9 +70,36 @@ func getCandidateAgentTargets() []AgentTarget {
 		name string
 		dir  string
 	}{
-		{"gentle-shell", "Gentle Shell", filepath.Join(home, ".gentle-shell", "agent", "extensions")},
+		{"gentle-shell-pi", "Gentle Shell (~/.pi/gentle-shell)", filepath.Join(home, ".pi", "gentle-shell", "extensions")},
+		{"gentle-shell", "Gentle Shell (~/.gentle-shell/agent)", filepath.Join(home, ".gentle-shell", "agent", "extensions")},
 		{"pi", "Pi Vanilla", filepath.Join(home, ".pi", "agent", "extensions")},
+		{"agent-wilox", "Wilox Pi", filepath.Join(home, ".pi", "agent-wilox", "extensions")},
 		{"j0k3r-pi", "J0k3r Pi", filepath.Join(home, ".pi", "agent-j0k3r", "extensions")},
+	}
+
+	// Verificar ~/.gentle-shell/config.json para incluir la ruta configurada explícitamente
+	cfgPath := filepath.Join(home, ".gentle-shell", "config.json")
+	if data, err := os.ReadFile(cfgPath); err == nil {
+		var cfg struct {
+			Home string `json:"home"`
+		}
+		if json.Unmarshal(data, &cfg) == nil && cfg.Home != "" {
+			customDir := filepath.Join(cfg.Home, "extensions")
+			exists := false
+			for _, c := range candidates {
+				if c.dir == customDir {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				candidates = append([]struct {
+					id   string
+					name string
+					dir  string
+				}{{"gentle-shell-cfg", "Gentle Shell (configurado)", customDir}}, candidates...)
+			}
+		}
 	}
 
 	var results []AgentTarget
@@ -256,22 +283,40 @@ echo "==> ⚡ CPAMC Auto-Switcher: Magic Pairing Express"
 TARGET_URL="%s"
 TARGET_DIR=""
 
-if [ -d "$HOME/.gentle-shell/agent" ]; then
-    TARGET_DIR="$HOME/.gentle-shell/agent/extensions/cpamc-auto-switcher"
-    SETTINGS_FILE="$HOME/.gentle-shell/agent/settings.json"
-    echo "==> Conectando Gentle-Shell ($HOME/.gentle-shell/agent)"
-elif [ -d "$HOME/.pi/agent" ]; then
-    TARGET_DIR="$HOME/.pi/agent/extensions/cpamc-auto-switcher"
-    SETTINGS_FILE="$HOME/.pi/agent/settings.json"
-    echo "==> Conectando Pi ($HOME/.pi/agent)"
-elif [ -d "$HOME/.pi/agent-j0k3r" ]; then
-    TARGET_DIR="$HOME/.pi/agent-j0k3r/extensions/cpamc-auto-switcher"
-    SETTINGS_FILE="$HOME/.pi/agent-j0k3r/settings.json"
-    echo "==> Conectando J0k3r Pi ($HOME/.pi/agent-j0k3r)"
-else
-    TARGET_DIR="$HOME/.gentle-shell/agent/extensions/cpamc-auto-switcher"
-    SETTINGS_FILE="$HOME/.gentle-shell/agent/settings.json"
-    echo "==> Inicializando destino por defecto: Gentle-Shell"
+if [ -f "$HOME/.gentle-shell/config.json" ]; then
+    CONFIGURED_HOME=$(grep -o '"home": *"[^"]*"' "$HOME/.gentle-shell/config.json" | head -n1 | cut -d'"' -f4 || true)
+    if [ -n "$CONFIGURED_HOME" ] && [ -d "$CONFIGURED_HOME" ]; then
+        TARGET_DIR="${CONFIGURED_HOME}/extensions/cpamc-auto-switcher"
+        SETTINGS_FILE="${CONFIGURED_HOME}/settings.json"
+        echo "==> Conectando Gentle-Shell configurado (${CONFIGURED_HOME})"
+    fi
+fi
+if [ -z "$TARGET_DIR" ]; then
+    if [ -d "$HOME/.pi/gentle-shell" ]; then
+        TARGET_DIR="$HOME/.pi/gentle-shell/extensions/cpamc-auto-switcher"
+        SETTINGS_FILE="$HOME/.pi/gentle-shell/settings.json"
+        echo "==> Conectando Gentle-Shell ($HOME/.pi/gentle-shell)"
+    elif [ -d "$HOME/.gentle-shell/agent" ]; then
+        TARGET_DIR="$HOME/.gentle-shell/agent/extensions/cpamc-auto-switcher"
+        SETTINGS_FILE="$HOME/.gentle-shell/agent/settings.json"
+        echo "==> Conectando Gentle-Shell ($HOME/.gentle-shell/agent)"
+    elif [ -d "$HOME/.pi/agent" ]; then
+        TARGET_DIR="$HOME/.pi/agent/extensions/cpamc-auto-switcher"
+        SETTINGS_FILE="$HOME/.pi/agent/settings.json"
+        echo "==> Conectando Pi ($HOME/.pi/agent)"
+    elif [ -d "$HOME/.pi/agent-wilox" ]; then
+        TARGET_DIR="$HOME/.pi/agent-wilox/extensions/cpamc-auto-switcher"
+        SETTINGS_FILE="$HOME/.pi/agent-wilox/settings.json"
+        echo "==> Conectando Wilox Pi ($HOME/.pi/agent-wilox)"
+    elif [ -d "$HOME/.pi/agent-j0k3r" ]; then
+        TARGET_DIR="$HOME/.pi/agent-j0k3r/extensions/cpamc-auto-switcher"
+        SETTINGS_FILE="$HOME/.pi/agent-j0k3r/settings.json"
+        echo "==> Conectando J0k3r Pi ($HOME/.pi/agent-j0k3r)"
+    else
+        TARGET_DIR="$HOME/.gentle-shell/agent/extensions/cpamc-auto-switcher"
+        SETTINGS_FILE="$HOME/.gentle-shell/agent/settings.json"
+        echo "==> Inicializando destino por defecto: Gentle-Shell"
+    fi
 fi
 
 PARENT_DIR="$(dirname "$TARGET_DIR")"
@@ -310,18 +355,33 @@ echo "==> ⚡ CPAMC Auto-Switcher Extension Express Installer"
 
 TARGET_DIR=""
 
-if [ -d "$HOME/.gentle-shell/agent" ]; then
-    TARGET_DIR="$HOME/.gentle-shell/agent/extensions/cpamc-auto-switcher"
-    echo "==> Detectado: Gentle-Shell ($HOME/.gentle-shell/agent)"
-elif [ -d "$HOME/.pi/agent" ]; then
-    TARGET_DIR="$HOME/.pi/agent/extensions/cpamc-auto-switcher"
-    echo "==> Detectado: Pi ($HOME/.pi/agent)"
-elif [ -d "$HOME/.pi/agent-j0k3r" ]; then
-    TARGET_DIR="$HOME/.pi/agent-j0k3r/extensions/cpamc-auto-switcher"
-    echo "==> Detectado: J0k3r Pi ($HOME/.pi/agent-j0k3r)"
-else
-    TARGET_DIR="$HOME/.gentle-shell/agent/extensions/cpamc-auto-switcher"
-    echo "==> Ningún agente detectado aún. Configurando destino por defecto: Gentle-Shell"
+if [ -f "$HOME/.gentle-shell/config.json" ]; then
+    CONFIGURED_HOME=$(grep -o '"home": *"[^"]*"' "$HOME/.gentle-shell/config.json" | head -n1 | cut -d'"' -f4 || true)
+    if [ -n "$CONFIGURED_HOME" ] && [ -d "$CONFIGURED_HOME" ]; then
+        TARGET_DIR="${CONFIGURED_HOME}/extensions/cpamc-auto-switcher"
+        echo "==> Detectado: Gentle-Shell configurado (${CONFIGURED_HOME})"
+    fi
+fi
+if [ -z "$TARGET_DIR" ]; then
+    if [ -d "$HOME/.pi/gentle-shell" ]; then
+        TARGET_DIR="$HOME/.pi/gentle-shell/extensions/cpamc-auto-switcher"
+        echo "==> Detectado: Gentle-Shell ($HOME/.pi/gentle-shell)"
+    elif [ -d "$HOME/.gentle-shell/agent" ]; then
+        TARGET_DIR="$HOME/.gentle-shell/agent/extensions/cpamc-auto-switcher"
+        echo "==> Detectado: Gentle-Shell ($HOME/.gentle-shell/agent)"
+    elif [ -d "$HOME/.pi/agent" ]; then
+        TARGET_DIR="$HOME/.pi/agent/extensions/cpamc-auto-switcher"
+        echo "==> Detectado: Pi ($HOME/.pi/agent)"
+    elif [ -d "$HOME/.pi/agent-wilox" ]; then
+        TARGET_DIR="$HOME/.pi/agent-wilox/extensions/cpamc-auto-switcher"
+        echo "==> Detectado: Wilox Pi ($HOME/.pi/agent-wilox)"
+    elif [ -d "$HOME/.pi/agent-j0k3r" ]; then
+        TARGET_DIR="$HOME/.pi/agent-j0k3r/extensions/cpamc-auto-switcher"
+        echo "==> Detectado: J0k3r Pi ($HOME/.pi/agent-j0k3r)"
+    else
+        TARGET_DIR="$HOME/.gentle-shell/agent/extensions/cpamc-auto-switcher"
+        echo "==> Ningún agente detectado aún. Configurando destino por defecto: Gentle-Shell"
+    fi
 fi
 
 PARENT_DIR="$(dirname "$TARGET_DIR")"

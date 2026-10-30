@@ -26,7 +26,7 @@ export async function runDiagnostics(ctx?: ExtensionContext): Promise<DoctorRepo
 	const t0 = Date.now();
 	try {
 		const res = await fetch(`${baseUrl}/v1/models`, {
-			signal: AbortSignal.timeout(3500),
+			signal: AbortSignal.timeout(6000),
 		});
 		const lat = Date.now() - t0;
 		if (res.ok || res.status === 401 || res.status === 403) {
@@ -58,7 +58,7 @@ export async function runDiagnostics(ctx?: ExtensionContext): Promise<DoctorRepo
 		if (mgmtKey) headers["Authorization"] = `Bearer ${mgmtKey}`;
 		const res = await fetch(`${baseUrl}/v0/management/plugins`, {
 			headers,
-			signal: AbortSignal.timeout(3500),
+			signal: AbortSignal.timeout(6000),
 		});
 		if (res.ok) {
 			const data = (await res.json()) as any;
@@ -98,18 +98,28 @@ export async function runDiagnostics(ctx?: ExtensionContext): Promise<DoctorRepo
 	try {
 		const headers: Record<string, string> = {};
 		if (mgmtKey) headers["Authorization"] = `Bearer ${mgmtKey}`;
-		const res = await fetch(`${baseUrl}/auto-switcher-pro/accounts`, {
+		let res = await fetch(`${baseUrl}/v0/management/auto-switcher-pro/manifest`, {
 			headers,
-			signal: AbortSignal.timeout(3500),
+			signal: AbortSignal.timeout(7000),
 		});
+		if (!res.ok && res.status === 404) {
+			// Fallback si CPAMC o proxy mapea sin el prefijo /v0/management
+			res = await fetch(`${baseUrl}/auto-switcher-pro/manifest`, {
+				headers,
+				signal: AbortSignal.timeout(7000),
+			});
+		}
 		if (res.ok) {
-			const accounts = (await res.json()) as any;
-			const count = Array.isArray(accounts) ? accounts.length : (Array.isArray(accounts?.accounts) ? accounts.accounts.length : 0);
-			if (count > 0) {
+			const data = (await res.json()) as any;
+			const accounts = Array.isArray(data) ? data : (Array.isArray(data?.accounts) ? data.accounts : []);
+			const count = accounts.length;
+			const rotations = data?.lifecycle?.rotations_count;
+			const rotationDetail = typeof rotations === "number" && rotations > 0 ? ` · ${rotations} rotaciones registradas` : "";
+			if (count > 0 || (typeof rotations === "number" && rotations > 0)) {
 				checks.push({
 					name: "SQLite WAL & Telemetría",
 					ok: true,
-					detail: `Canal activo (${count} cuentas / rotaciones registradas)`,
+					detail: `Canal activo (${count} cuentas${rotationDetail})`,
 				});
 			} else {
 				checks.push({
@@ -304,9 +314,21 @@ async function executeAutoFix(ctx: ExtensionContext): Promise<void> {
 
 		const agentExtRoots = [
 			path.join(os.homedir(), ".gentle-shell", "agent", "extensions"),
+			path.join(os.homedir(), ".pi", "gentle-shell", "extensions"),
 			path.join(os.homedir(), ".pi", "agent", "extensions"),
 			path.join(os.homedir(), ".pi", "agent-wilox", "extensions"),
 		];
+
+		// Incluir directorio configurado en ~/.gentle-shell/config.json si existe
+		try {
+			const configJsonPath = path.join(os.homedir(), ".gentle-shell", "config.json");
+			if (fs.existsSync(configJsonPath)) {
+				const cfg = JSON.parse(fs.readFileSync(configJsonPath, "utf-8"));
+				if (cfg?.home) {
+					agentExtRoots.push(path.join(cfg.home, "extensions"));
+				}
+			}
+		} catch {}
 
 		const backupRootDir = path.join(os.homedir(), ".gentle-shell", "backups", "extensions");
 		if (!fs.existsSync(backupRootDir)) {
