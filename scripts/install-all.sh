@@ -13,6 +13,7 @@ CYAN="\033[0;36m"
 YELLOW="\033[1;33m"
 RED="\033[0;31m"
 MAGENTA="\033[0;35m"
+ITALIC="\033[3m"
 RESET="\033[0m"
 
 REPO_URL="https://github.com/WiloxDev/cpamc-auto-switcher-pro"

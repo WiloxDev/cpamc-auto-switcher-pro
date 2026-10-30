@@ -42,11 +42,17 @@ func TestManifestHTTP(t *testing.T) {
 		t.Fatalf("unmarshal manifest error: %v, raw: %s", err, string(bodyBytes))
 	}
 
+	t.Logf("decoded manifest body: %s", string(bodyBytes))
+
 	if !manifest.OK {
 		t.Errorf("expected manifest.OK to be true")
 	}
 
 	if manifest.Epoch == "" {
 		t.Errorf("expected non-empty epoch")
+	}
+
+	if manifest.Lifecycles == nil {
+		t.Errorf("expected non-nil Lifecycles map in manifest")
 	}
 }

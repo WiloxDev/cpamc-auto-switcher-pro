@@ -918,7 +918,7 @@ export function formatSidebarQuotaCardLines(
 
 		// Líneas de cabecera (3 filas como en la imagen)
 		// Fila 1: Periodo / Modo y Afinidad / Badge
-		const lifecycle = getCachedLifecycle();
+		const lifecycle = getCachedLifecycle(pair.poolKey);
 		const ctxState = getContextState();
 		const curPeriod = periodLabel || lifecycle?.period_label || "Hoy (24h)";
 		const affinityVal = lifecycle?.cache_affinity_pct ? `${lifecycle.cache_affinity_pct.toFixed(0)}% ok` : "92% ok";
@@ -1119,20 +1119,20 @@ export function formatSidebarQuotaCardLines(
 			const causesTitle = `${s.amber("⚠️ CAUSAS DE ROTACIÓN (ÚLTIMAS 24H)")}`;
 			const causesHeader = fitToWidth(`${s.border("│")} ${causesTitle}${" ".repeat(Math.max(1, innerW - visibleLen(causesTitle)))} ${s.border("│")}`, safeW);
 			const causesLines: string[] = [];
-			const recentCauses = lifecycle?.recent_causes && lifecycle.recent_causes.length > 0
-				? lifecycle.recent_causes
-				: [
-					{ time_str: "15:32", previous_leader: "mar...tro", new_leader: "wil...io7", reason_display: "[Histéresis Δ]", timestamp: 0 },
-					{ time_str: "12:42", previous_leader: "mar...tro", new_leader: "wil...io7", reason_display: "[Fatiga 80%]", timestamp: 0 },
-					{ time_str: "12:37", previous_leader: "mar...tro", new_leader: "wil...io7", reason_display: "[Fatiga 80%]", timestamp: 0 },
-					{ time_str: "12:36", previous_leader: "mar...tro", new_leader: "wil...io7", reason_display: "[shadow_infe..]", timestamp: 0 },
-				];
+			const recentCauses = lifecycle?.recent_causes || [];
 
-			for (const cause of recentCauses.slice(0, 4)) {
-				const causeLeft = `${s.muted(cause.time_str)}  ${s.text(cause.previous_leader)} ${s.slate("➔")} ${s.text(cause.new_leader)}`;
-				const causeRight = s.accent(cause.reason_display);
-				const spC = Math.max(1, innerW - visibleLen(causeLeft) - visibleLen(causeRight));
-				causesLines.push(fitToWidth(`${s.border("│")} ${causeLeft}${" ".repeat(spC)}${causeRight} ${s.border("│")}`, safeW));
+			if (recentCauses.length > 0) {
+				for (const cause of recentCauses.slice(0, 4)) {
+					const causeLeft = `${s.muted(cause.time_str)}  ${s.text(cause.previous_leader)} ${s.slate("➔")} ${s.text(cause.new_leader)}`;
+					const causeRight = s.accent(cause.reason_display);
+					const spC = Math.max(1, innerW - visibleLen(causeLeft) - visibleLen(causeRight));
+					causesLines.push(fitToWidth(`${s.border("│")} ${causeLeft}${" ".repeat(spC)}${causeRight} ${s.border("│")}`, safeW));
+				}
+			} else {
+				// Estado vacío legítimo y transparente (sin datos falsificados ni inventados)
+				const emptyLeft = `${s.idle("●")} ${s.text("Líder firme")} ${s.slate("· Sin rotaciones recientes")}`;
+				const padEmpty = Math.max(0, innerW - visibleLen(emptyLeft));
+				causesLines.push(fitToWidth(`${s.border("│")} ${emptyLeft}${" ".repeat(padEmpty)} ${s.border("│")}`, safeW));
 			}
 			causesSectionLines.push(causesHeader, ...causesLines);
 		} else {

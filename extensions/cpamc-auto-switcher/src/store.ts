@@ -39,6 +39,7 @@ export interface ContextCompressionState {
 }
 
 let cachedLifecycle: LifecycleSummary | null = null;
+let cachedLifecyclesByPool: Record<string, LifecycleSummary> = {};
 let contextState: ContextCompressionState = {
 	compressionsSession: 0,
 	currentTokens: 0,
@@ -59,8 +60,28 @@ export function getContextState(): ContextCompressionState {
 	return { ...contextState };
 }
 
-export function getCachedLifecycle(): LifecycleSummary | null {
+export function getCachedLifecycle(poolId?: string): LifecycleSummary | null {
+	if (poolId) {
+		const normId = poolId.trim().toLowerCase();
+		for (const [k, v] of Object.entries(cachedLifecyclesByPool)) {
+			if (k.toLowerCase() === normId) {
+				return v;
+			}
+		}
+	}
 	return cachedLifecycle;
+}
+
+export function setCachedLifecycleForTesting(lifecycle: LifecycleSummary | null, poolId?: string): void {
+	if (poolId) {
+		if (lifecycle) {
+			cachedLifecyclesByPool[poolId] = lifecycle;
+		} else {
+			delete cachedLifecyclesByPool[poolId];
+		}
+	} else {
+		cachedLifecycle = lifecycle;
+	}
 }
 
 export interface SwitcherAccount {
@@ -254,6 +275,9 @@ export async function querySwitcherAccounts(force = false): Promise<SwitcherAcco
 						const mData = (await manifestRes.json()) as any;
 						if (mData?.lifecycle) {
 							cachedLifecycle = mData.lifecycle;
+						}
+						if (mData?.lifecycles && typeof mData.lifecycles === "object") {
+							cachedLifecyclesByPool = { ...cachedLifecyclesByPool, ...mData.lifecycles };
 						}
 						if (mData?.ok && Array.isArray(mData?.accounts) && mData.accounts.length > 0) {
 							const reserveIndexByPool = new Map<string, number>();

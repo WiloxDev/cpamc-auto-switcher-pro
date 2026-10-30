@@ -23,13 +23,14 @@ func isManifestPath(p string) bool {
 
 // ManifestResponse estructura la agregación O(1) de estado en RAM para clientes
 type ManifestResponse struct {
-	OK        bool                     `json:"ok"`
-	Timestamp int64                    `json:"timestamp"`
-	Epoch     string                   `json:"epoch"`
-	Pools     []PoolDefinition         `json:"pools"`
-	Telemetry []AccountQuotaTelemetry  `json:"telemetry"`
-	Accounts  []ManifestAccountSummary `json:"accounts"`
-	Lifecycle *analytics.LifecycleSummary `json:"lifecycle,omitempty"`
+	OK         bool                                  `json:"ok"`
+	Timestamp  int64                                 `json:"timestamp"`
+	Epoch      string                                `json:"epoch"`
+	Pools      []PoolDefinition                      `json:"pools"`
+	Telemetry  []AccountQuotaTelemetry               `json:"telemetry"`
+	Accounts   []ManifestAccountSummary              `json:"accounts"`
+	Lifecycle  *analytics.LifecycleSummary           `json:"lifecycle,omitempty"`
+	Lifecycles map[string]*analytics.LifecycleSummary `json:"lifecycles"`
 }
 
 type ManifestAccountSummary struct {
@@ -230,21 +231,36 @@ func handleManifestHTTP(req ManagementRequestPayload) ([]byte, error) {
 		}
 	}
 
-	// Computar LifecycleSummary para la tarjeta unificada TUI
+	// Computar LifecycleSummary para cada pool independiente (evitando el cuello de botella global)
+	lifecyclesByPool := make(map[string]*analytics.LifecycleSummary)
 	targetPoolID := ""
 	if len(pools) > 0 {
 		targetPoolID = pools[0].ID
 	}
-	lifecycleSumm, _ := analytics.GetLifecycleSummary(targetPoolID, "24h")
+	for _, p := range pools {
+		lSumm, err := analytics.GetLifecycleSummary(p.ID, "24h")
+		if err == nil && lSumm != nil {
+			lifecyclesByPool[p.ID] = lSumm
+			if p.BasePrefix != "" {
+				lifecyclesByPool[p.BasePrefix] = lSumm
+			}
+		}
+	}
+
+	lifecycleSumm := lifecyclesByPool[targetPoolID]
+	if lifecycleSumm == nil {
+		lifecycleSumm, _ = analytics.GetLifecycleSummary(targetPoolID, "24h")
+	}
 
 	resp := ManifestResponse{
-		OK:        true,
-		Timestamp: time.Now().Unix(),
-		Epoch:     epochStr,
-		Pools:     pools,
-		Telemetry: liveQuotas,
-		Accounts:  accountSummaries,
-		Lifecycle: lifecycleSumm,
+		OK:         true,
+		Timestamp:  time.Now().Unix(),
+		Epoch:      epochStr,
+		Pools:      pools,
+		Telemetry:  liveQuotas,
+		Accounts:   accountSummaries,
+		Lifecycle:  lifecycleSumm,
+		Lifecycles: lifecyclesByPool,
 	}
 
 	return jsonManagementResponse(http.StatusOK, resp)

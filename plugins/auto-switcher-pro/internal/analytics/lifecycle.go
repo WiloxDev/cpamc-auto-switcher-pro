@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -72,10 +73,13 @@ func sanitizeEmailDisplay(raw string) string {
 	return name
 }
 
-func mapReasonToBadge(reason string, statusCode int) string {
+func MapReasonToBadge(reason string, statusCode int) string {
 	rLower := strings.ToLower(reason)
 	if statusCode == 429 || strings.Contains(rLower, "429") || strings.Contains(rLower, "quota") {
 		return "[HTTP 429]"
+	}
+	if strings.Contains(rLower, "shadow_inference") || strings.Contains(rLower, "prompt_cache") {
+		return "[Prompt Cache]"
 	}
 	if strings.Contains(rLower, "fatigue") || strings.Contains(rLower, "75pct") || strings.Contains(rLower, "80pct") {
 		return "[Fatiga 80%]"
@@ -92,10 +96,17 @@ func mapReasonToBadge(reason string, statusCode int) string {
 	if strings.Contains(rLower, "warmup") {
 		return "[Ghost Warmup]"
 	}
+	if statusCode >= 500 || strings.Contains(rLower, "timeout") || strings.Contains(rLower, "reset") || strings.Contains(rLower, "econn") {
+		return "[Red Upstream]"
+	}
 	if len(reason) > 14 {
 		return "[" + reason[:11] + "..]"
 	}
 	return "[" + reason + "]"
+}
+
+func mapReasonToBadge(reason string, statusCode int) string {
+	return MapReasonToBadge(reason, statusCode)
 }
 
 // GetLifecycleSummary computa las métricas de ciclo de vida reales desde rotations.db
@@ -164,19 +175,21 @@ func GetLifecycleSummary(poolID string, period string) (*LifecycleSummary, error
 	}
 	summary.TokensConsumedFmt = formatTokensHuman(summary.TokensConsumed)
 
-	// 4. Causas forenses filtradas con prioridad al pool activo
-	queryAudit := `SELECT timestamp, event_type, trigger_reason, previous_leader, new_leader, status_code
-		FROM audit_events
-		WHERE pool_id = ? AND (previous_leader != '' OR new_leader != '')
-		ORDER BY timestamp DESC LIMIT 4`
-	rows, err := db.Query(queryAudit, poolID)
-	if err != nil || rows == nil {
-		// Fallback general si no hay eventos audit para este pool específico
-		queryAudit = `SELECT timestamp, event_type, trigger_reason, previous_leader, new_leader, status_code
+	// 4. Causas forenses filtradas estrictamente para el pool activo
+	var rows *sql.Rows
+	if poolID != "" {
+		queryAudit := `SELECT timestamp, event_type, trigger_reason, previous_leader, new_leader, status_code
+			FROM audit_events
+			WHERE (pool_id = ? OR pool_id = (SELECT id FROM pools WHERE base_prefix = ? LIMIT 1))
+			  AND (previous_leader != '' OR new_leader != '')
+			ORDER BY timestamp DESC LIMIT 4`
+		rows, err = db.Query(queryAudit, poolID, poolID)
+	} else {
+		queryAudit := `SELECT timestamp, event_type, trigger_reason, previous_leader, new_leader, status_code
 			FROM audit_events
 			WHERE (previous_leader != '' OR new_leader != '')
 			ORDER BY timestamp DESC LIMIT 4`
-		rows, _ = db.Query(queryAudit)
+		rows, err = db.Query(queryAudit)
 	}
 
 	if rows != nil {

@@ -790,5 +790,17 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 				assert.strictEqual(visibleLen(l), 48, `Native peek line ${idx} must be 48 cols`);
 			});
 		});
+
+		it("Test 9: Renders honest empty state for pool with no recent rotations (no fabricated data)", () => {
+			const lines = formatSidebarQuotaCardLines(mockPoolPair, 48, undefined, undefined, false, undefined, undefined, "pinned");
+			const text = lines.map((l: string) => stripAnsi(l)).join("\n");
+			assert.match(text, /⚠️ CAUSAS DE ROTACIÓN \(ÚLTIMAS 24H\)/);
+			assert.match(text, /Líder firme/);
+			assert.match(text, /Sin rotaciones recientes/);
+			assert.doesNotMatch(text, /mar\.\.\.tro/);
+			lines.forEach((l: string, idx: number) => {
+				assert.strictEqual(visibleLen(l), 48, `Pinned line ${idx} must be 48 cols`);
+			});
+		});
 	});
 });
