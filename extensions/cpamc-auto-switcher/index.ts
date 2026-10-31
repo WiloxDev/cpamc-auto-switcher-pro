@@ -1,8 +1,9 @@
-import { existsSync, watch } from "node:fs";
+import { existsSync, lstatSync, watch } from "node:fs";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { initDynamicProvider, resolveCpamcBaseUrl, resolveManagementKey } from "./src/provider.js";
 import { initFailoverHook, scheduleAutoSwitcher } from "./src/failover.js";
@@ -128,34 +129,75 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	// 3c. Comando para actualizar Auto Switcher Pro de forma segura (sin vectores de inyección remota)
-	pi.registerCommand("switcher-update", {
-		description: "Informa y verifica de forma segura las actualizaciones de Auto Switcher Pro vía canal autenticado",
-		handler: async (_args, ctx) => {
-			if (process.env.CPAMC_AIRGAP_MODE === "1" || process.env.CPAMC_AIRGAP_MODE === "true") {
-				if (ctx.hasUI) {
-					ctx.ui.notify?.("ℹ️ Entorno en modo aislado (Air-Gapped). Las actualizaciones remotas están desactivadas por política.", "info");
-				}
-				return;
+	// 3c. Comando para actualizar Auto Switcher Pro de forma segura y verificar estado de sincronización
+	const handleUpdateCommand = async (_args: string | undefined, ctx: ExtensionContext) => {
+		const guard = guardForContext(ctx);
+		// Purga incidentes residuales en SHM para desatorar la TUI inmediatamente
+		guard.softClearOnUserPrompt();
+
+		// Detectar si la extensión corre en modo symlink o copia física
+		let installMode = "copia física";
+		let repoCommit = "";
+		try {
+			const extDir = dirname(fileURLToPath(import.meta.url));
+			const lstat = lstatSync(extDir);
+			if (lstat.isSymbolicLink()) {
+				installMode = "enlace simbólico (Dev Symlink)";
 			}
-			try {
-				const checkUrl = `${resolveHubBaseUrl()}/dist/version.json`;
-				const res = await fetch(checkUrl, { signal: AbortSignal.timeout(4000) }).catch(() => null);
-				if (res && res.ok) {
-					const data = (await res.json()) as any;
-					const latestVersion = data?.version;
-					if (latestVersion && latestVersion !== CURRENT_VERSION) {
-						if (ctx.hasUI) {
-							ctx.ui.notify?.(`🚀 Nueva versión disponible: v${latestVersion} (actual: v${CURRENT_VERSION}). Descarga el artefacto verificado con SHA256 desde los releases oficiales.`, "info");
-						}
-						return;
-					}
-				}
-			} catch {}
+			const repoDir = join(extDir, "../..");
+			if (existsSync(join(repoDir, ".git"))) {
+				const { stdout } = await execAsync("git rev-parse --short HEAD", { cwd: repoDir, timeout: 1500 });
+				repoCommit = stdout.trim();
+			}
+		} catch {}
+
+		if (process.env.CPAMC_AIRGAP_MODE === "1" || process.env.CPAMC_AIRGAP_MODE === "true") {
 			if (ctx.hasUI) {
-				ctx.ui.notify?.(`ℹ️ Auto Switcher Pro v${CURRENT_VERSION} está actualizado y protegido por el anillo criptográfico dual.`, "info");
+				ctx.ui.notify?.(
+					`ℹ️ Modo Air-Gapped activo. Extensión en ${installMode}${repoCommit ? ` [commit ${repoCommit}]` : ""}. Disyuntores rearmados.`,
+					"info",
+				);
 			}
-		},
+			await adapter?.update(true, ctx);
+			return;
+		}
+
+		try {
+			const checkUrl = `${resolveHubBaseUrl()}/dist/version.json`;
+			const res = await fetch(checkUrl, { signal: AbortSignal.timeout(4000) }).catch(() => null);
+			if (res && res.ok) {
+				const data = (await res.json()) as any;
+				const latestVersion = data?.version;
+				if (latestVersion && latestVersion !== CURRENT_VERSION) {
+					if (ctx.hasUI) {
+						ctx.ui.notify?.(
+							`🚀 Nueva versión disponible: v${latestVersion} (instalada: v${CURRENT_VERSION} en ${installMode}). Ejecuta ./install.sh para actualizar.`,
+							"info",
+						);
+					}
+					await adapter?.update(true, ctx);
+					return;
+				}
+			}
+		} catch {}
+
+		if (ctx.hasUI) {
+			ctx.ui.notify?.(
+				`✅ Auto Switcher Pro v${CURRENT_VERSION} [${installMode}${repoCommit ? ` · ${repoCommit}` : ""}] sincronizado. TUI y Disyuntor limpios.`,
+				"info",
+			);
+		}
+		await adapter?.update(true, ctx);
+	};
+
+	pi.registerCommand("switcher-update", {
+		description: "Verifica e informa de forma segura el estado de sincronización y actualizaciones de Auto Switcher Pro",
+		handler: handleUpdateCommand,
+	});
+
+	pi.registerCommand("cpamc:update", {
+		description: "Sincroniza en caliente la TUI, limpia disyuntores residuales y reporta el estado del repositorio",
+		handler: handleUpdateCommand,
 	});
 
 	// 3d. Comando One-Click Telemetry Share: /switcher-report
@@ -465,6 +507,9 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 		// Si es una sesión nueva (/new) o cold startup, rearmar el disyuntor limpio para no arrastrar fantasmas
 		if (reason === "new" || reason === "startup") {
 			guard.resetSession();
+		} else {
+			// En resume o reanudación de sesión, suavizar cualquier disyuntor persistido
+			guard.softClearOnUserPrompt();
 		}
 
 		if (!adapter) {
@@ -651,6 +696,8 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 
 	pi.on("ui_prompt_start", async (_event: any, ctx: ExtensionContext) => {
 		try {
+			const guard = guardForContext(ctx);
+			guard.softClearOnUserPrompt();
 			await adapter?.update(false, ctx);
 		} catch {}
 	});

@@ -170,8 +170,11 @@ export class AutoSwitcherRunawayGuard {
 					this.lastTimestamp = recordTime;
 					this.mitigatedCount = typeof data.mitigatedCount === "number" ? data.mitigatedCount : 1;
 
-					// Si pasaron más de DISYUNTOR_COUNTDOWN_SEC o fue mitigado, transición a centinela
-					if (now - recordTime >= DISYUNTOR_COUNTDOWN_SEC * 1000 || data.isTripped === false) {
+					// Si la sesión es diferente, o pasaron más de DISYUNTOR_COUNTDOWN_SEC, o fue mitigado, transición a centinela
+					const isDifferentSession = Boolean(
+						data.sessionId && this.currentSessionId && data.sessionId !== this.currentSessionId,
+					);
+					if (isDifferentSession || now - recordTime >= DISYUNTOR_COUNTDOWN_SEC * 1000 || data.isTripped === false) {
 						this.isTripped = false;
 						this.tripReason = undefined;
 					} else {
@@ -182,6 +185,14 @@ export class AutoSwitcherRunawayGuard {
 				}
 			}
 		} catch {}
+		return false;
+	}
+
+	softClearOnUserPrompt(): boolean {
+		if (this.isTripped) {
+			this.fadeIncident();
+			return true;
+		}
 		return false;
 	}
 

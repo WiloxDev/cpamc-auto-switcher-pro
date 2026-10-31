@@ -616,24 +616,22 @@ install_extension() {
     # Detectar agentes instalados
     local target_agent_dirs=()
 
-    # Detección de Gentle-Shell según configuración activa (~/.gentle-shell/config.json)
+    # Detección de Gentle-Shell según configuración activa (~/.gentle-shell/config.json - SSOT)
+    local configured_home=""
     if [ -f "$HOME/.gentle-shell/config.json" ]; then
-        local configured_home
         configured_home=$(grep -o '"home": *"[^"]*"' "$HOME/.gentle-shell/config.json" | head -n1 | cut -d'"' -f4 || true)
         if [ -n "$configured_home" ] && [ -d "$configured_home" ]; then
             target_agent_dirs+=("$configured_home")
-            echo -e "Detectado agente: ${GREEN}Gentle Shell (configurado)${RESET} (${configured_home})"
+            echo -e "Detectado agente: ${GREEN}Gentle Shell (canónico / SSOT)${RESET} (${configured_home})"
         fi
     fi
 
-    if [ -d "$HOME/.pi/gentle-shell" ]; then
-        if [[ ! " ${target_agent_dirs[*]} " =~ " $HOME/.pi/gentle-shell " ]]; then
+    # Si no había config.json o configured_home no existía, evaluar fallbacks respetando no duplicar
+    if [ -z "$configured_home" ]; then
+        if [ -d "$HOME/.pi/gentle-shell" ]; then
             target_agent_dirs+=("$HOME/.pi/gentle-shell")
             echo -e "Detectado agente: ${GREEN}Gentle Shell${RESET} (~/.pi/gentle-shell)"
-        fi
-    fi
-    if [ -d "$HOME/.gentle-shell/agent" ]; then
-        if [[ ! " ${target_agent_dirs[*]} " =~ " $HOME/.gentle-shell/agent " ]]; then
+        elif [ -d "$HOME/.gentle-shell/agent" ]; then
             target_agent_dirs+=("$HOME/.gentle-shell/agent")
             echo -e "Detectado agente: ${GREEN}Gentle Shell (legado/agent)${RESET} (~/.gentle-shell/agent)"
         fi
@@ -696,12 +694,21 @@ install_extension() {
         local ext_dest="${ext_dir}/cpamc-auto-switcher"
 
         if [ -d "$local_ext_src" ]; then
-            if [ -d "$ext_dest" ]; then
-                local ts=$(date +%Y%m%d-%H%M%S)
-                mv "$ext_dest" "${backup_dir}/cpamc-auto-switcher.bak-${ts}" 2>/dev/null || rm -rf "$ext_dest"
+            # Si estamos en un clon local de Git (.git existe), preferir Symlink dinámico (Dev Mode)
+            if [ -d "${repo_root}/.git" ]; then
+                rm -rf "$ext_dest"
+                ln -sfn "$local_ext_src" "$ext_dest"
+                echo -e "${GREEN}    [✓] Extensión enlazada en modo desarrollo (Symlink): ${ext_dest} -> ${local_ext_src}${RESET}"
+            else
+                if [ -d "$ext_dest" ] && [ ! -L "$ext_dest" ]; then
+                    local ts=$(date +%Y%m%d-%H%M%S)
+                    mv "$ext_dest" "${backup_dir}/cpamc-auto-switcher.bak-${ts}" 2>/dev/null || rm -rf "$ext_dest"
+                elif [ -L "$ext_dest" ]; then
+                    rm -f "$ext_dest"
+                fi
+                cp -r "$local_ext_src" "$ext_dest"
+                echo -e "${GREEN}    [✓] Extensión instalada en: ${ext_dest}${RESET}"
             fi
-            cp -r "$local_ext_src" "$ext_dest"
-            echo -e "${GREEN}    [✓] Extensión instalada en: ${ext_dest}${RESET}"
         else
             echo -e "${RED}    [ERROR] No se pudo encontrar el origen de extensions/cpamc-auto-switcher.${RESET}"
         fi

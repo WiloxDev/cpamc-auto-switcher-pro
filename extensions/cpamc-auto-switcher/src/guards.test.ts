@@ -361,6 +361,46 @@ describe("AutoSwitcherRunawayGuard - Anti-Bucle y Protección de Contexto", () =
 		assert.ok(tele.tokensSavedEstimate > 0);
 	});
 
+	it("11b. softClearOnUserPrompt despeja el disyuntor al enviar prompt o arrancar sesión fresca", () => {
+		const guard = new AutoSwitcherRunawayGuard();
+		guard.checkTool({ toolName: "bash", input: { command: "docker exec -it app sh" } });
+		assert.equal(guard.getTelemetry().circuitBreakerTripped, true);
+
+		// Usuario escribe un nuevo prompt -> softClearOnUserPrompt
+		const cleared = guard.softClearOnUserPrompt();
+		assert.equal(cleared, true);
+
+		const tele = guard.getTelemetry();
+		assert.equal(tele.circuitBreakerTripped, false);
+		assert.equal(tele.mitigatedCount, 1);
+		assert.ok(tele.tokensSavedEstimate > 0);
+
+		// Llamadas subsecuentes retornan false si ya no está tripped
+		assert.equal(guard.softClearOnUserPrompt(), false);
+		guard.dismissIncident();
+	});
+
+	it("11c. una sesión con sessionId diferente no queda secuestrada por el disyuntor de una sesión previa", () => {
+		const testCwd = "/tmp/test-project-dual-sess";
+		// Simular incidente guardado a nivel de proyecto con sessionId antiguo en el payload
+		const guardOld = new AutoSwitcherRunawayGuard();
+		guardOld.setScope(testCwd);
+		(guardOld as any).currentSessionId = "session-prev-111";
+		guardOld.checkTool({ toolName: "bash", input: { command: "docker exec -it app sh" } });
+		assert.equal(guardOld.getTelemetry().circuitBreakerTripped, true);
+
+		// Nueva sesión en el mismo proyecto con nuevo session ID
+		const guardNew = new AutoSwitcherRunawayGuard();
+		guardNew.setScope(testCwd);
+		(guardNew as any).currentSessionId = "session-next-222";
+		const teleNew = guardNew.getTelemetry();
+		// Debe desarmar el disyuntor porque la sesión es diferente
+		assert.equal(teleNew.circuitBreakerTripped, false);
+
+		guardOld.dismissIncident();
+		guardNew.dismissIncident();
+	});
+
 	describe("12. Contrato de Resolución de Contexto y Sesión Canónica (guardForContext & resolveSessionId)", () => {
 		// Importado dinámicamente o probado contra helpers canónicos de guards
 		it("12a. resolveSessionId extrae id canónico de sessionManager.getSessionId()", async () => {
