@@ -18,6 +18,7 @@ import {
 } from "./store.js";
 import { resolveCpamcBaseUrl } from "./provider.js";
 import { runawayGuard, type RunawayGuardTelemetry, MAX_BASH_EXPLORATION_PER_TURN, MAX_SUBAGENT_POLL_PER_TURN } from "./guards.js";
+import { readWiloxSettings } from "./wilox-layout-manager.js";
 
 // Colores ANSI suaves compatibles con temas oscuros y claros (Cyber-Pastel)
 const RESET = "\x1b[0m";
@@ -1671,7 +1672,25 @@ export class CpamcTuiAdapter {
 	private injectIntoFooter(isBusy: boolean): void {
 		try {
 			const originTag = this.getModelOriginTag();
-			const block = formatFooterRotationBlock(this.currentPair, isBusy, originTag);
+			let block = formatFooterRotationBlock(this.currentPair, isBusy, originTag);
+
+			// Inyección de Mini-Pill Floating HUD cuando el riel derecho está apagado
+			try {
+				const s = readWiloxSettings().sidebar;
+				if (!s.enabled && s.floatingHudWhenDisabled && this.currentPair) {
+					const active = this.currentPair.active;
+					const consumed5h = parseConsumedNumber(active.consumed5h);
+					const freePct = Math.max(0, 100 - consumed5h);
+					const remainingSec = active.reset5hInSec ?? 0;
+					const remainingMin = Math.max(0, Math.floor(remainingSec / 60));
+					const hours = Math.floor(remainingMin / 60);
+					const mins = remainingMin % 60;
+					const timeStr = hours > 0 ? `${hours}h${mins}m` : `${mins}m`;
+					const hudTag = `⚡ ${freePct}% ok · ${timeStr}`;
+					block = block ? `${block} [${hudTag}]` : `[${hudTag}]`;
+				}
+			} catch {}
+
 			const tui = this.tui || (this.ctx as any)?.tui;
 			const terminal = tui?.terminal as any;
 			const footer = (this.ctx as any)?.footer || terminal?.[Symbol.for("wilox-pi.footer")] || terminal?.[Symbol.for("j0k3r-theme.footer")];
@@ -1691,7 +1710,7 @@ export class CpamcTuiAdapter {
 
 		const self = this;
 
-		// 1. Siempre registrar la tarjeta cpamc-quota-card y quota independiente (para hosts con sección habilitada)
+		// 1. Siempre registrar la tarjeta sentinel como ranura primaria soberana
 		const quotaCardPart = {
 			render: (width?: number) => {
 				try {
@@ -1739,8 +1758,18 @@ export class CpamcTuiAdapter {
 		};
 
 		gentleState.parts.set("sentinel", quotaCardPart);
-		gentleState.parts.set("cpamc-quota-card", quotaCardPart);
-		gentleState.parts.set("quota", quotaCardPart);
+
+		// Aliases delegados de solo lectura para retrocompatibilidad transparente (cero duplicación en RAM)
+		const createDelegatedAlias = (targetKey: string) => ({
+			get __isCpamcAlias() { return true; },
+			render: (w?: number) => gentleState.parts.get(targetKey)?.render?.(w) ?? [],
+			digest: () => gentleState.parts.get(targetKey)?.digest?.() ?? "",
+			invalidate: () => gentleState.parts.get(targetKey)?.invalidate?.(),
+			handleMouse: (ev: any) => gentleState.parts.get(targetKey)?.handleMouse?.(ev),
+		});
+
+		gentleState.parts.set("cpamc-quota-card", createDelegatedAlias("sentinel"));
+		gentleState.parts.set("quota", createDelegatedAlias("sentinel"));
 
 		// 2. Interceptor reactivo universal sobre "footer" con protección anti-duplicación
 		const wrapFooter = (originalRail: any) => {

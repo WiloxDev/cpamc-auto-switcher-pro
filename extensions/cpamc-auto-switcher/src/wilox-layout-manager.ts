@@ -2,8 +2,9 @@ import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirS
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { runawayGuard } from "./guards.js";
 
-export type SidebarOrderPreset = "standard" | "sentinel-top" | "tasks-first";
+export type SidebarOrderPreset = "standard" | "sentinel-top" | "tasks-first" | "custom";
 
 export interface WiloxUnifiedSettings {
 	schema: "wiloxdev.unified/v1";
@@ -16,6 +17,7 @@ export interface WiloxUnifiedSettings {
 		breakpoint: number;
 		gap: number;
 		orderPreset: SidebarOrderPreset;
+		customOrder?: string[];
 		visibility: {
 			footer: boolean;
 			sentinel: boolean;
@@ -23,6 +25,9 @@ export interface WiloxUnifiedSettings {
 			agents: boolean;
 			todo: boolean;
 		};
+		adaptiveVerticalBudgeting: boolean;
+		floatingHudWhenDisabled: boolean;
+		smartFocusOnIncident: boolean;
 	};
 	scanner: {
 		username: string;
@@ -45,6 +50,7 @@ const DEFAULT_SETTINGS: WiloxUnifiedSettings = {
 		breakpoint: 115,
 		gap: 2,
 		orderPreset: "standard",
+		customOrder: ["footer", "sentinel", "jobs", "agents", "todo"],
 		visibility: {
 			footer: true,
 			sentinel: true,
@@ -52,6 +58,9 @@ const DEFAULT_SETTINGS: WiloxUnifiedSettings = {
 			agents: true,
 			todo: true,
 		},
+		adaptiveVerticalBudgeting: true,
+		floatingHudWhenDisabled: true,
+		smartFocusOnIncident: true,
 	},
 	scanner: {
 		username: "Wilox",
@@ -126,6 +135,11 @@ export function readWiloxSettings(): WiloxUnifiedSettings {
 					sidebar: {
 						...current.sidebar,
 						...(data.sidebar || {}),
+						orderPreset: data.sidebar?.orderPreset || current.sidebar.orderPreset,
+						customOrder: data.sidebar?.customOrder || current.sidebar.customOrder,
+						adaptiveVerticalBudgeting: data.sidebar?.adaptiveVerticalBudgeting ?? current.sidebar.adaptiveVerticalBudgeting,
+						floatingHudWhenDisabled: data.sidebar?.floatingHudWhenDisabled ?? current.sidebar.floatingHudWhenDisabled,
+						smartFocusOnIncident: data.sidebar?.smartFocusOnIncident ?? current.sidebar.smartFocusOnIncident,
 						visibility: {
 							...current.sidebar.visibility,
 							...(data.sidebar?.visibility || {}),
@@ -285,9 +299,16 @@ export function applyWiloxDevOptimalDefaults(): void {
 	syncSidebarLayout(38);
 }
 
-export function getResolvedSidebarSections(preset: SidebarOrderPreset, visibility: Record<string, boolean>): string[] {
+export function getResolvedSidebarSections(
+	preset: SidebarOrderPreset,
+	visibility: Record<string, boolean>,
+	customOrder?: string[],
+	smartFocus = true,
+): string[] {
 	let rawOrder: string[] = [];
-	if (preset === "sentinel-top") {
+	if (preset === "custom" && Array.isArray(customOrder) && customOrder.length > 0) {
+		rawOrder = [...customOrder];
+	} else if (preset === "sentinel-top") {
 		rawOrder = ["sentinel", "footer", "jobs", "agents", "todo"];
 	} else if (preset === "tasks-first") {
 		rawOrder = ["footer", "todo", "jobs", "agents", "sentinel"];
@@ -295,22 +316,73 @@ export function getResolvedSidebarSections(preset: SidebarOrderPreset, visibilit
 		// "standard"
 		rawOrder = ["footer", "sentinel", "jobs", "agents", "todo"];
 	}
+
+	// Smart Focus / Event-Driven Elevation (Alerta Roja):
+	// Si ocurre un incidente crítico o 429 mitigado, Sentinel sube temporalmente a la cima (#1)
+	if (smartFocus) {
+		try {
+			const g = runawayGuard.getTelemetry();
+			const hasActiveIncident = Boolean(
+				g.circuitBreakerTripped ||
+				g.blockedIntrospections > 0 ||
+				g.blockedBashEvasions > 0 ||
+				((g.mitigatedCount ?? 0) > 0 && (g.tokensSavedEstimate ?? 0) > 0 && (Date.now() - (g.lastIncident?.timestamp || 0) < 20000))
+			);
+			if (hasActiveIncident && rawOrder.includes("sentinel")) {
+				rawOrder = ["sentinel", ...rawOrder.filter((id) => id !== "sentinel")];
+			}
+		} catch {}
+	}
+
 	return rawOrder.filter((id) => visibility[id] !== false);
+}
+
+export function shiftSentinelOrder(direction: "up" | "down"): string[] {
+	const settings = readWiloxSettings();
+	const baseOrder = settings.sidebar.customOrder && settings.sidebar.customOrder.length > 0
+		? [...settings.sidebar.customOrder]
+		: getResolvedSidebarSections(settings.sidebar.orderPreset, { footer: true, sentinel: true, jobs: true, agents: true, todo: true }, undefined, false);
+
+	const idx = baseOrder.indexOf("sentinel");
+	if (idx === -1) return baseOrder;
+
+	const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+	if (targetIdx >= 0 && targetIdx < baseOrder.length) {
+		const temp = baseOrder[idx]!;
+		baseOrder[idx] = baseOrder[targetIdx]!;
+		baseOrder[targetIdx] = temp;
+
+		writeWiloxSettings({
+			sidebar: {
+				...settings.sidebar,
+				orderPreset: "custom",
+				customOrder: baseOrder,
+			},
+		});
+		updateGlobalSidebarOrder();
+		syncSidebarLayout();
+	}
+	return baseOrder;
 }
 
 export function updateGlobalSidebarOrder(): void {
 	const settings = readWiloxSettings();
-	const sections = getResolvedSidebarSections(settings.sidebar.orderPreset, settings.sidebar.visibility);
+	const sections = getResolvedSidebarSections(
+		settings.sidebar.orderPreset,
+		settings.sidebar.visibility,
+		settings.sidebar.customOrder,
+		settings.sidebar.smartFocusOnIncident,
+	);
 	globalState[COMMUNITY_SIDEBAR_ORDER_SLOT] = sections;
 }
 
 /**
- * Módulo 1: Sidebar & Layout Manager · Distribución y Tarjetas
+ * Módulo 1: Gentle Shell · Sidebar & Layout Manager · Distribución y Tarjetas
  */
 function registerSidebarModule(): void {
 	registerCommunityModule({
 		id: "sidebar",
-		title: "Sidebar & Layout Manager · Distribución y Tarjetas",
+		title: "Gentle Shell · Sidebar & Layout Manager",
 		order: 5,
 		summary: () => {
 			const s = readWiloxSettings().sidebar;
@@ -318,6 +390,7 @@ function registerSidebarModule(): void {
 				standard: "Estándar",
 				"sentinel-top": "Sentinel Top",
 				"tasks-first": "Tareas Primero",
+				custom: "Personalizado",
 			};
 			const activeCount = Object.values(s.visibility).filter(Boolean).length;
 			return `${s.width} cols · ${presetNames[s.orderPreset]} (${activeCount} activas)`;
@@ -332,7 +405,7 @@ function registerSidebarModule(): void {
 				preview: () => {
 					const s = readWiloxSettings().sidebar;
 					return {
-						title: "Sidebar · Master Switch",
+						title: "Gentle Shell · Master Switch del Sidebar",
 						sample: s.enabled
 							? "[ON] Riel lateral visible con distribución modular y tarjetas activas."
 							: "[OFF] Oculta por completo el riel lateral para maximizar el ancho del chat.",
@@ -353,7 +426,7 @@ function registerSidebarModule(): void {
 				preview: () => {
 					const s = readWiloxSettings().sidebar;
 					return {
-						title: "Sidebar · Geometría y Ancho",
+						title: "Gentle Shell · Geometría del Riel",
 						sample: s.width === 38
 							? "[Compacto: 38 cols] · Optimiza el espacio horizontal en terminales medianas."
 							: "[Standard: 50 cols] · Dimensiones amplias oficiales de Gentle Shell.",
@@ -373,6 +446,7 @@ function registerSidebarModule(): void {
 						standard: "1. Estándar (Status ➔ Sentinel ➔ Jobs ➔ Todo)",
 						"sentinel-top": "2. Sentinel Top (Sentinel ➔ Status ➔ Jobs ➔ Todo)",
 						"tasks-first": "3. Tareas Primero (Status ➔ Todo ➔ Jobs ➔ Sentinel)",
+						custom: "4. Personalizado (Orden Arbitrario Libre)",
 					};
 					return `Esquema de Orden: [${presetLabels[s.orderPreset]}]`;
 				},
@@ -409,9 +483,16 @@ function registerSidebarModule(): void {
 							"│ 5. ⚡ CPAMC Sentinel        · Cuota al pie del riel             │",
 							"└─────────────────────────────────────────────────────────────────┘",
 						].join("\n"),
+						custom: [
+							"┌─ Preview: [4. Personalizado] (Orden Arbitrario) ────────────────┐",
+							"│ ✿ Gentle Shell ✿ (Banner Cabecera)                              │",
+							"│ Distribución reordenada libremente por el usuario.              │",
+							"│ Usa la opción 'Mover Sentinel' abajo para cambiar de posición.  │",
+							"└─────────────────────────────────────────────────────────────────┘",
+						].join("\n"),
 					};
 					return {
-						title: "Sidebar · Esquema de Distribución",
+						title: "Gentle Shell · Esquema de Distribución",
 						sample: samples[s.orderPreset],
 					};
 				},
@@ -422,6 +503,112 @@ function registerSidebarModule(): void {
 					const nextPreset = cycle[nextIdx]!;
 					writeWiloxSettings({ sidebar: { ...s, orderPreset: nextPreset } });
 					updateGlobalSidebarOrder();
+					syncSidebarLayout();
+				},
+			},
+			{
+				id: "sidebar-shift-sentinel",
+				label: () => {
+					const s = readWiloxSettings().sidebar;
+					const currentOrder = s.customOrder && s.customOrder.length > 0
+						? s.customOrder
+						: getResolvedSidebarSections(s.orderPreset, s.visibility, undefined, false);
+					const idx = currentOrder.indexOf("sentinel");
+					const posStr = idx !== -1 ? `#${idx + 1}` : "Oculto";
+					const actionHint = idx === 0 ? "Bajar ▼" : "Subir ▲";
+					return `Mover Sentinel: [Posición ${posStr} ➔ ${actionHint}]`;
+				},
+				preview: () => {
+					const s = readWiloxSettings().sidebar;
+					const currentOrder = s.customOrder && s.customOrder.length > 0
+						? s.customOrder
+						: getResolvedSidebarSections(s.orderPreset, s.visibility, undefined, false);
+					const idx = currentOrder.indexOf("sentinel");
+					return {
+						title: "Reordenamiento Libre del Sentinel",
+						sample: [
+							`Posición actual en la pila: ${idx + 1} de ${currentOrder.length}`,
+							`Secuencia: [ ${currentOrder.join(" ➔ ")} ]`,
+							"Presiona Enter para alternar y desplazar la tarjeta dentro del riel.",
+						].join("\n"),
+					};
+				},
+				action: () => {
+					const s = readWiloxSettings().sidebar;
+					const currentOrder = s.customOrder && s.customOrder.length > 0
+						? s.customOrder
+						: getResolvedSidebarSections(s.orderPreset, s.visibility, undefined, false);
+					const idx = currentOrder.indexOf("sentinel");
+					const direction = idx === 0 ? "down" : "up";
+					shiftSentinelOrder(direction);
+				},
+			},
+			{
+				id: "sidebar-smart-focus",
+				label: () => {
+					const s = readWiloxSettings().sidebar;
+					return `Smart Focus (Alerta Roja): [${s.smartFocusOnIncident ? "ON" : "OFF"}]`;
+				},
+				preview: () => ({
+					title: "Smart Focus · Elevación Dinámica en Incidentes",
+					sample: [
+						"Si ocurre un HTTP 429, disyuntor o ciclo de bucle repetitivo:",
+						" • [ON]  Eleva automáticamente a CPAMC Sentinel a la posición #1.",
+						" • Al normalizarse el incidente, regresa a su posición configurada.",
+						" • [OFF] Mantiene el orden estricto configurado sin importar incidentes.",
+					].join("\n"),
+				}),
+				action: () => {
+					const s = readWiloxSettings().sidebar;
+					writeWiloxSettings({
+						sidebar: { ...s, smartFocusOnIncident: !s.smartFocusOnIncident },
+					});
+					updateGlobalSidebarOrder();
+					syncSidebarLayout();
+				},
+			},
+			{
+				id: "sidebar-adaptive-vertical",
+				label: () => {
+					const s = readWiloxSettings().sidebar;
+					return `Auto-Colapso en Pantallas Bajas: [${s.adaptiveVerticalBudgeting ? "ON" : "OFF"}]`;
+				},
+				preview: () => ({
+					title: "Adaptive Vertical Budgeting",
+					sample: [
+						"Ajusta el despliegue cuando la terminal tiene poca altura (<32 líneas):",
+						" • [ON]  Auto-compacta tarjetas inferiores para proteger la vista de Status y Cuota.",
+						" • [OFF] Despliega tarjetas completas requiriendo scroll manual.",
+					].join("\n"),
+				}),
+				action: () => {
+					const s = readWiloxSettings().sidebar;
+					writeWiloxSettings({
+						sidebar: { ...s, adaptiveVerticalBudgeting: !s.adaptiveVerticalBudgeting },
+					});
+					updateGlobalSidebarOrder();
+					syncSidebarLayout();
+				},
+			},
+			{
+				id: "sidebar-floating-hud",
+				label: () => {
+					const s = readWiloxSettings().sidebar;
+					return `HUD Mini-Pill sin Riel: [${s.floatingHudWhenDisabled ? "ON" : "OFF"}]`;
+				},
+				preview: () => ({
+					title: "HUD Mini-Pill en Status Bar",
+					sample: [
+						"Cuando apagas el riel derecho para tener chat a 160 columnas:",
+						" • [ON]  Inyecta cápsula mínima: [⚡ 97% ok · 2h35m] en la barra de status.",
+						" • [OFF] Oculta toda telemetría de cuota al desactivar el sidebar.",
+					].join("\n"),
+				}),
+				action: () => {
+					const s = readWiloxSettings().sidebar;
+					writeWiloxSettings({
+						sidebar: { ...s, floatingHudWhenDisabled: !s.floatingHudWhenDisabled },
+					});
 					syncSidebarLayout();
 				},
 			},
@@ -673,6 +860,8 @@ export function autoDiscoverCommunityExtensions(): void {
 		join(homedir(), ".pi", "agent", "extensions"),
 	];
 
+	const discoveredIds = new Set<string>();
+
 	for (const root of searchRoots) {
 		if (!existsSync(root)) continue;
 		try {
@@ -685,9 +874,13 @@ export function autoDiscoverCommunityExtensions(): void {
 					const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
 					if (pkg.wiloxCommunity && typeof pkg.wiloxCommunity === "object") {
 						const manifest = pkg.wiloxCommunity;
-						if (manifest.id && manifest.title && !globalState[COMMUNITY_REGISTRY_SLOT]?.has(manifest.id)) {
-							// Módulo descubierto por metadata
-							console.log(`[WiloxDev] Descubierto módulo de comunidad por metadata: ${manifest.id}`);
+						const modId = manifest.id || manifest.moduleId;
+						if (modId && !discoveredIds.has(modId) && !globalState[COMMUNITY_REGISTRY_SLOT]?.has(modId)) {
+							discoveredIds.add(modId);
+							// Módulo descubierto por metadata: registro silencioso sin ensuciar la salida de terminal en arranque
+							if (process.env.DEBUG_WILOXDEV === "1" || process.env.DEBUG_WILOXDEV === "true") {
+								console.debug(`[WiloxDev] Descubierto módulo de comunidad por metadata: ${modId}`);
+							}
 						}
 					}
 				} catch {}
@@ -697,6 +890,7 @@ export function autoDiscoverCommunityExtensions(): void {
 }
 
 const LAYOUT_TARGET_FILES = [
+	"/home/wilox/.local/share/mise/installs/node/24.21.0/lib/node_modules/gentle-pi/lib/shell-sidebar-layout.ts",
 	"/home/wilox/.local/share/gentle-shell/install/runtime/main-sdk/lib/shell-sidebar-layout.ts",
 	"/home/wilox/.local/share/gentle-shell/install/prefix/lib/node_modules/gentle-pi/lib/shell-sidebar-layout.ts",
 	"/home/wilox/.local/share/gentle-shell/install/runtime/main-source/lib/shell-sidebar-layout.ts",
@@ -705,6 +899,7 @@ const LAYOUT_TARGET_FILES = [
 ];
 
 const GENTLE_SHELL_TARGET_FILES = [
+	"/home/wilox/.local/share/mise/installs/node/24.21.0/lib/node_modules/gentle-pi/extensions/gentle-shell.ts",
 	"/home/wilox/.local/share/gentle-shell/install/runtime/main-sdk/extensions/gentle-shell.ts",
 	"/home/wilox/.local/share/gentle-shell/install/prefix/lib/node_modules/gentle-pi/extensions/gentle-shell.ts",
 	"/home/wilox/.local/share/gentle-shell/install/runtime/main-source/extensions/gentle-shell.ts",
@@ -713,6 +908,7 @@ const GENTLE_SHELL_TARGET_FILES = [
 ];
 
 const CUSTOMIZE_VIEW_TARGET_FILES = [
+	"/home/wilox/.local/share/mise/installs/node/24.21.0/lib/node_modules/gentle-pi/lib/visual-customize-view.ts",
 	"/home/wilox/.local/share/gentle-shell/install/runtime/main-sdk/lib/visual-customize-view.ts",
 	"/home/wilox/.local/share/gentle-shell/install/prefix/lib/node_modules/gentle-pi/lib/visual-customize-view.ts",
 	"/home/wilox/.local/share/gentle-shell/install/runtime/main-source/lib/visual-customize-view.ts",
@@ -809,10 +1005,14 @@ export function communitySidebarSections(): string[] {
 			}
 
 			// Parcheo dinámico de sections en el riel
-			const sectionsStatic = 'const sections = ["footer", "jobs", "agents", "todo"]';
+			const sectionsStatic1 = 'const sections = ["footer", "jobs", "agents", "todo"]';
+			const sectionsStatic2 = 'const sections = ["footer", "agents", "todo"]';
 			const sectionsDynamic = 'const sections = (typeof communitySidebarSections === "function" ? communitySidebarSections() : ["footer", "sentinel", "jobs", "agents", "todo"])';
-			if (content.includes(sectionsStatic)) {
-				content = content.replace(sectionsStatic, sectionsDynamic);
+			if (content.includes(sectionsStatic1)) {
+				content = content.replace(sectionsStatic1, sectionsDynamic);
+				fileModified = true;
+			} else if (content.includes(sectionsStatic2)) {
+				content = content.replace(sectionsStatic2, sectionsDynamic);
 				fileModified = true;
 			}
 

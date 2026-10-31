@@ -94,11 +94,23 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 	// 3b. Inicializar comando /cpamc doctor (diagnóstico integral y autoreparación)
 	registerDoctorCommand(pi);
 
-	// 3b-bis. Registrar módulo en el Protocolo de Acordeón Modular WiloxDev (/gentle:customize)
+	// 3b-bis. Registrar módulo en el Protocolo de Acordeón Modular WiloxDev (/gentle:customize / /customize)
+	// Se pasa un facade reactivo/diferido para evitar Temporal Dead Zone (TDZ) sobre 'adapter'
 	try {
-		registerCpamcSentinelCustomizeModule(adapter);
+		registerCpamcSentinelCustomizeModule({
+			isEnabled: () => adapter?.isEnabled() ?? true,
+			toggleEnabled: () => adapter?.toggleEnabled() ?? true,
+			setEnabled: (val: boolean) => adapter?.setEnabled(val),
+			getPeriodLabel: () => adapter?.getPeriodLabel() ?? "Hoy (24h)",
+			togglePeriod: () => adapter?.togglePeriod() ?? "Hoy (24h)",
+			getAccordionMode: () => adapter?.getAccordionMode() ?? "collapsed",
+			toggleExpanded: () => adapter?.toggleExpanded() ?? "collapsed",
+			update: async (force?: boolean, ctx?: any) => {
+				await adapter?.update(force ?? true, ctx);
+			},
+		});
 	} catch (err: any) {
-		console.error("cpamc-auto-switcher: fallo al registrar en /gentle:customize bus:", err?.message || err);
+		console.error("cpamc-auto-switcher: fallo al registrar en bus de personalización:", err?.message || err);
 	}
 
 	// 3b. Comando para restablecer el modelo del proyecto actual al default de Pi
