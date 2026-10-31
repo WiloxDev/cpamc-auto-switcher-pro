@@ -6,6 +6,10 @@ import { join } from "node:path";
 export const MAX_BASH_EXPLORATION_PER_TURN = 5;
 export const MAX_SUBAGENT_POLL_PER_TURN = 2;
 export const MAX_TOTAL_TOOLS_PER_TURN = 15;
+// Las sesiones de subagente (no interactivas) viven dentro de UN solo turno: el presupuesto
+// interactivo de 15 acciones las corta antes de poder escribir su artefacto. Techos altos pero finitos.
+export const MAX_TOTAL_TOOLS_PER_TURN_HEADLESS = 200;
+export const MAX_BASH_EXPLORATION_PER_TURN_HEADLESS = 60;
 export const MAX_CYCLE_REPETITIONS = 3;
 export const CYCLE_WINDOW_SIZE = 6;
 export const INCIDENT_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas máximo de validez
@@ -87,6 +91,18 @@ export class AutoSwitcherRunawayGuard {
 	private bashEvasionsBlocked = 0;
 	private pollsBlocked = 0;
 	private prohibitedBlocked = 0;
+
+	// true = lazo interactivo (presupuesto estricto). false = sesión headless/subagente.
+	private interactive = true;
+
+	/** Define el presupuesto del turno. Se re-fija en cada tool_call desde el ctx de la sesión emisora. */
+	setInteractive(interactive: boolean): void {
+		this.interactive = interactive;
+	}
+
+	isInteractive(): boolean {
+		return this.interactive;
+	}
 
 	private commandHistory: string[] = [];
 	private rawCommandHistory: string[] = [];
@@ -207,7 +223,8 @@ export class AutoSwitcherRunawayGuard {
 		const input = event.input as Record<string, unknown> | undefined;
 
 		// 1. Presupuesto Máximo Global por Turno (Hard Turn Budget)
-		if (this.totalTools >= MAX_TOTAL_TOOLS_PER_TURN) {
+		const totalBudget = this.interactive ? MAX_TOTAL_TOOLS_PER_TURN : MAX_TOTAL_TOOLS_PER_TURN_HEADLESS;
+		if (this.totalTools >= totalBudget) {
 			this.isTripped = true;
 			this.tripReason = "STEP_BUDGET_EXCEEDED";
 			this.tokensSaved = Math.max(this.tokensSaved, 45000); // Estimación mínima conservadora
@@ -221,12 +238,12 @@ export class AutoSwitcherRunawayGuard {
 				actions_blocked: this.totalTools,
 				status: "mitigated",
 			};
-			this.lastReason = `Límite global de ${MAX_TOTAL_TOOLS_PER_TURN} acciones alcanzado`;
+			this.lastReason = `Límite global de ${totalBudget} acciones alcanzado`;
 			this.lastTimestamp = Date.now();
 			this.persistIncidentToShm();
 			return {
 				block: true,
-				reason: `CIRCUIT BREAKER [Auto Switcher Pro]: Has alcanzado el límite máximo de ${MAX_TOTAL_TOOLS_PER_TURN} acciones consecutivas en este turno. Detén la exploración de inmediato, sintetiza tus hallazgos actuales y devuelve la palabra al usuario con tus conclusiones.`,
+				reason: `CIRCUIT BREAKER [Auto Switcher Pro]: Has alcanzado el límite máximo de ${totalBudget} acciones consecutivas en este turno. Detén la exploración de inmediato, sintetiza tus hallazgos actuales y devuelve la palabra al usuario con tus conclusiones.`,
 			};
 		}
 
@@ -318,13 +335,14 @@ export class AutoSwitcherRunawayGuard {
 				!/\b(?:odd\/|docs\/|\.md\b)/i.test(cmd)
 			) {
 				this.bashCount++;
-				if (this.bashCount > MAX_BASH_EXPLORATION_PER_TURN) {
+				const bashBudget = this.interactive ? MAX_BASH_EXPLORATION_PER_TURN : MAX_BASH_EXPLORATION_PER_TURN_HEADLESS;
+				if (this.bashCount > bashBudget) {
 					this.bashEvasionsBlocked++;
 					this.lastReason = "Evasión por bash bloqueada";
 					this.lastTimestamp = Date.now();
 					return {
 						block: true,
-						reason: `Presupuesto de terminal excedido (${this.bashCount}/${MAX_BASH_EXPLORATION_PER_TURN} consultas consecutivas): Has realizado demasiadas lecturas/búsquedas de código inline vía bash. Delega la exploración a un subagente para proteger la ventana de contexto.`,
+						reason: `Presupuesto de terminal excedido (${this.bashCount}/${bashBudget} consultas consecutivas): Has realizado demasiadas lecturas/búsquedas de código inline vía bash. Delega la exploración a un subagente para proteger la ventana de contexto.`,
 					};
 				}
 			}
@@ -403,5 +421,75 @@ export class AutoSwitcherRunawayGuard {
 	}
 }
 
-// Instancia global compartida entre los hooks de evento y el adaptador de TUI
+/**
+ * Registro por sesión de las guardias headless.
+ * Los subagentes corren in-process junto a la sesión humana: con un único contador compartido,
+ * tres delegaciones paralelas se faman entre sí (observado: un subagente disparó el breaker en su
+ * acción nº8). Cada sesión no interactiva recibe su propia instancia y su propio archivo de incidente
+ * en /dev/shm; la instancia histórica `runawayGuard` queda reservada al lazo interactivo (UI/telemetría).
+ */
+const MAX_TRACKED_HEADLESS_SESSIONS = 16;
+const headlessGuards = new Map<string, AutoSwitcherRunawayGuard>();
+
+export function getHeadlessRunawayGuard(sessionId?: string, cwd?: string): AutoSwitcherRunawayGuard {
+	const key = sessionId || "headless-default";
+	const existing = headlessGuards.get(key);
+	if (existing) {
+		// Re-inserción para mantener el orden LRU real del Map.
+		headlessGuards.delete(key);
+		headlessGuards.set(key, existing);
+		existing.setScope(cwd, sessionId);
+		return existing;
+	}
+	const guard = new AutoSwitcherRunawayGuard();
+	guard.setInteractive(false);
+	guard.setScope(cwd, sessionId);
+	headlessGuards.set(key, guard);
+	if (headlessGuards.size > MAX_TRACKED_HEADLESS_SESSIONS) {
+		const oldest = headlessGuards.keys().next().value;
+		if (oldest && oldest !== key) headlessGuards.delete(oldest);
+	}
+	return guard;
+}
+
+/** Telemetría de pruebas: número de sesiones headless con presupuesto propio. */
+export function headlessGuardCount(): number {
+	return headlessGuards.size;
+}
+
+// Instancia global compartida entre los hooks de evento y el adaptador de TUI (sesión interactiva)
 export const runawayGuard = new AutoSwitcherRunawayGuard();
+
+/**
+ * Resuelve el identificador de sesión canónico según la API pública de Pi Coding Agent.
+ * Compatible con ReadonlySessionManager (getSessionId()) y fallback a sessionId directo.
+ */
+export function resolveSessionId(ctx?: any): string | undefined {
+	if (!ctx) return undefined;
+	if (typeof ctx.sessionManager?.getSessionId === "function") {
+		const id = ctx.sessionManager.getSessionId();
+		if (typeof id === "string" && id.length > 0) return id;
+	}
+	if (typeof ctx.sessionId === "string" && ctx.sessionId.length > 0) {
+		return ctx.sessionId;
+	}
+	return undefined;
+}
+
+/**
+ * Resolución de guardia por sesión:
+ * Identifica si la sesión es no-interactiva / headless (subagente SDK, RPC, print, o ctx.hasUI === false)
+ * y asigna su instancia aislada con presupuesto amplio (getHeadlessRunawayGuard).
+ * Las sesiones interactivas con UI humana preservan el límite protector estricto (runawayGuard).
+ */
+export function guardForContext(ctx?: any): AutoSwitcherRunawayGuard {
+	const declaredMode = ctx?.mode;
+	const isExplicitNonTui = typeof declaredMode === "string" && declaredMode !== "tui";
+	const isHeadlessSdk = ctx?.hasUI === false;
+
+	if (isExplicitNonTui || isHeadlessSdk) {
+		const sid = resolveSessionId(ctx);
+		return getHeadlessRunawayGuard(sid, ctx?.cwd);
+	}
+	return runawayGuard;
+}

@@ -26,7 +26,7 @@ import {
 	type QuotaCardViewMode,
 } from "./src/store.js";
 import { saveProjectModel, getProjectModel, clearProjectModel } from "./src/project-model-store.js";
-import { runawayGuard } from "./src/guards.js";
+import { runawayGuard, getHeadlessRunawayGuard, guardForContext, resolveSessionId } from "./src/guards.js";
 import { showIncidentModal } from "./src/incident-modal.js";
 import { registerCpamcSentinelCustomizeModule } from "./src/wilox-community.js";
 import {
@@ -39,19 +39,8 @@ import {
 const execAsync = promisify(exec);
 const CURRENT_VERSION = "1.0.0";
 
-/**
- * Resuelve la URL base del centro de mando / hub de licencias con prioridad segura:
- * 1. AUTO_SWITCHER_HUB_URL (entorno)
- * 2. CPAMC_LICENSE_HUB_URL (entorno)
- * 3. https://hub.wiloxdev.com (dominio formal con TLS)
- */
-export function resolveHubBaseUrl(): string {
-	const envUrl = process.env.AUTO_SWITCHER_HUB_URL || process.env.CPAMC_LICENSE_HUB_URL;
-	if (envUrl) {
-		return envUrl.replace(/\/+$/, "");
-	}
-	return "https://hub.wiloxdev.com";
-}
+import { resolveHubBaseUrl } from "./src/hub-url.js";
+export { resolveHubBaseUrl };
 
 /**
  * CPAMC Auto-Switcher Unified Extension for Pi & Gentle-Shell
@@ -468,13 +457,14 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 		clearTimer();
 
 		// Asignar el ámbito de proyecto y sesión al guard
-		const sessionId = (ctx as any)?.sessionId || (ctx as any)?.sessionManager?.sessionId;
-		runawayGuard.setScope(ctx?.cwd, sessionId);
+		const sessionId = resolveSessionId(ctx);
+		const guard = guardForContext(ctx);
+		guard.setScope(ctx?.cwd, sessionId);
 
 		const reason = event?.reason;
 		// Si es una sesión nueva (/new) o cold startup, rearmar el disyuntor limpio para no arrastrar fantasmas
 		if (reason === "new" || reason === "startup") {
-			runawayGuard.resetSession();
+			guard.resetSession();
 		}
 
 		if (!adapter) {
@@ -667,12 +657,13 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 
 	pi.on("turn_start", async (_event: any, ctx: ExtensionContext) => {
 		try {
+			const guard = guardForContext(ctx);
 			// Si el disyuntor estaba disparado en el turno anterior, la reanudación del turno
 			// por acción/orden del usuario lo despeja inmediatamente a Centinela Limpio (Dual-Trigger)
-			if (runawayGuard.getTelemetry().circuitBreakerTripped) {
-				runawayGuard.fadeIncident();
+			if (guard.getTelemetry().circuitBreakerTripped) {
+				guard.fadeIncident();
 			}
-			runawayGuard.resetTurn();
+			guard.resetTurn();
 			adapter?.onTurnStart();
 			await adapter?.update(true, ctx);
 		} catch {}
@@ -680,17 +671,18 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 
 	// Blindaje contra bucles de terminal, auto-introspección y polling a subagentes
 	pi.on("tool_call", async (event: any, ctx: ExtensionContext) => {
-		const check = runawayGuard.checkTool(event);
+		const guard = guardForContext(ctx);
+		const check = guard.checkTool(event);
 		if (check?.block) {
 			if (ctx?.hasUI) {
 				ctx.ui.notify?.(`🛑 ${check.reason.split(":")[0] || "Acción frenada por Auto Switcher Pro"}`, "warning");
 			}
-			const tele = runawayGuard.getTelemetry();
+			const tele = guard.getTelemetry();
 			if (tele.circuitBreakerTripped && tele.lastIncident) {
 				// Enviar incidente a la base de datos SQLite de Auto Switcher Pro en segundo plano
 				const payload = {
 					...tele.lastIncident,
-					session_id: (ctx as any)?.sessionId || (ctx as any)?.sessionManager?.sessionId,
+					session_id: resolveSessionId(ctx),
 					pool_id: ctx?.model?.id,
 				};
 				const mgmtKey = resolveManagementKey();

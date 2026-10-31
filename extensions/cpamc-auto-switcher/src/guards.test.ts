@@ -33,6 +33,9 @@ const {
 	MAX_BASH_EXPLORATION_PER_TURN,
 	MAX_SUBAGENT_POLL_PER_TURN,
 	MAX_TOTAL_TOOLS_PER_TURN,
+	runawayGuard,
+	getHeadlessRunawayGuard,
+	headlessGuardCount,
 	MAX_CYCLE_REPETITIONS,
 	normalizeCommand,
 } = await import("./guards.js");
@@ -237,6 +240,58 @@ describe("AutoSwitcherRunawayGuard - Anti-Bucle y Protección de Contexto", () =
 		assert.equal(teleCleared.incidentId, undefined);
 	});
 
+	it("8b. Sesión headless (subagente): conserva el corte, pero con presupuesto amplio", () => {
+		const guard = new AutoSwitcherRunawayGuard();
+		// MAX_TOTAL_TOOLS_PER_TURN_HEADLESS = 200 / MAX_BASH_EXPLORATION_PER_TURN_HEADLESS = 60
+		guard.setInteractive(false);
+
+		// Un subagente legítimo pasa del techo interactivo de 15 sin ser cortado.
+		for (let i = 0; i < 15; i++) {
+			assert.equal(guard.checkTool({ toolName: "read", input: { path: `src_${i}.ts` } }), undefined);
+		}
+		assert.equal(guard.getTelemetry().circuitBreakerTripped, false);
+
+		// Sigue habiendo techo finito: la acción 200 se bloquea.
+		for (let i = 16; i < 200; i++) {
+			assert.equal(guard.checkTool({ toolName: "read", input: { path: `src_${i}.ts` } }), undefined);
+		}
+		const blocked = guard.checkTool({ toolName: "read", input: { path: "src_200.ts" } });
+		assert.ok(blocked?.block);
+		assert.match(blocked.reason, /límite máximo de 200 acciones/i);
+		assert.equal(guard.getTelemetry().circuitBreakerReason, "STEP_BUDGET_EXCEEDED");
+		guard.dismissIncident();
+
+		// Interactivo vuelve a ser estricto: 15 sigue cortando (sin regresión del lazo humano).
+		const strict = new AutoSwitcherRunawayGuard();
+		strict.setInteractive(true);
+		for (let i = 0; i < 14; i++) {
+			assert.equal(strict.checkTool({ toolName: "read", input: { path: `f_${i}.ts` } }), undefined);
+		}
+		assert.ok(strict.checkTool({ toolName: "read", input: { path: "f_15.ts" } })?.block);
+		strict.dismissIncident();
+	});
+
+	it("8c. El registro headless aísla presupuestos entre sesiones concurrentes", () => {
+		const a = getHeadlessRunawayGuard("sess-A", "/tmp/proj-A");
+		const b = getHeadlessRunawayGuard("sess-B", "/tmp/proj-B");
+		assert.notEqual(a, b);
+		assert.notEqual(a, runawayGuard);
+
+		// La sesión A consume su presupuesto sin tocar el de B ni el de la sesión interactiva.
+		for (let i = 0; i < 15; i++) {
+			assert.equal(a.checkTool({ toolName: "read", input: { path: `a_${i}.ts` } }), undefined);
+		}
+		assert.equal(b.getTelemetry().totalToolCount, 0);
+		assert.equal(runawayGuard.getTelemetry().totalToolCount, 0);
+
+		// A es reutilizable (misma id) y sigue contando; B conserva su techo propio de 200.
+		assert.equal(getHeadlessRunawayGuard("sess-A", "/tmp/proj-A"), a);
+		assert.equal(a.getTelemetry().totalToolCount, 15);
+		assert.ok(headlessGuardCount() >= 2);
+		a.dismissIncident();
+		b.dismissIncident();
+	});
+
 	it("9. Persiste el incidente en /dev/shm y permite recuperarlo o descartarlo", () => {
 		const testCwd = "/tmp/test-project-alpha";
 		const testSession = "sess-12345";
@@ -304,5 +359,53 @@ describe("AutoSwitcherRunawayGuard - Anti-Bucle y Protección de Contexto", () =
 		assert.equal(tele.circuitBreakerTripped, false);
 		assert.equal(tele.mitigatedCount, 1);
 		assert.ok(tele.tokensSavedEstimate > 0);
+	});
+
+	describe("12. Contrato de Resolución de Contexto y Sesión Canónica (guardForContext & resolveSessionId)", () => {
+		// Importado dinámicamente o probado contra helpers canónicos de guards
+		it("12a. resolveSessionId extrae id canónico de sessionManager.getSessionId()", async () => {
+			const { resolveSessionId } = await import("./guards.js");
+			const ctxWithMethod = {
+				sessionManager: {
+					getSessionId: () => "session-uuid-1234",
+				},
+			};
+			assert.equal(resolveSessionId(ctxWithMethod), "session-uuid-1234");
+		});
+
+		it("12b. resolveSessionId soporta propiedad sessionId directa como fallback", async () => {
+			const { resolveSessionId } = await import("./guards.js");
+			const ctxWithProp = {
+				sessionId: "direct-session-5678",
+			};
+			assert.equal(resolveSessionId(ctxWithProp), "direct-session-5678");
+		});
+
+		it("12c. guardForContext asigna presupuesto headless cuando hasUI === false o mode !== 'tui'", async () => {
+			const { guardForContext } = await import("./guards.js");
+			// Sesión de subagente SDK/RPC: sin UI o con hasUI false
+			const sdkCtx = {
+				hasUI: false,
+				sessionManager: {
+					getSessionId: () => "subagent-sdk-session-1",
+				},
+				cwd: "/tmp/project-subagent",
+			};
+			const guard = guardForContext(sdkCtx);
+			assert.notEqual(guard, runawayGuard);
+			assert.equal(guard.isInteractive(), false);
+
+			// Sesión interactiva TUI: hasUI true y sin mode no-tui
+			const tuiCtx = {
+				hasUI: true,
+				mode: "tui",
+				sessionManager: {
+					getSessionId: () => "tui-interactive-session-1",
+				},
+			};
+			const interactiveGuard = guardForContext(tuiCtx);
+			assert.equal(interactiveGuard, runawayGuard);
+			assert.equal(interactiveGuard.isInteractive(), true);
+		});
 	});
 });
