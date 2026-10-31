@@ -11,6 +11,7 @@
 *.epoch
 *-license.json
 *-state.json
+.gentle-shell-sidebar-reference.png
 
 # Node / build caches
 node_modules/
