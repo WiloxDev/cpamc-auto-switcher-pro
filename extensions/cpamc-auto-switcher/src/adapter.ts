@@ -1738,6 +1738,7 @@ export class CpamcTuiAdapter {
 			},
 		};
 
+		gentleState.parts.set("sentinel", quotaCardPart);
 		gentleState.parts.set("cpamc-quota-card", quotaCardPart);
 		gentleState.parts.set("quota", quotaCardPart);
 

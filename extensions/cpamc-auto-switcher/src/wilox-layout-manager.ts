@@ -3,15 +3,26 @@ import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
+export type SidebarOrderPreset = "standard" | "sentinel-top" | "tasks-first";
+
 export interface WiloxUnifiedSettings {
 	schema: "wiloxdev.unified/v1";
 	ui: {
 		lastExpandedModule: string | null;
 	};
 	sidebar: {
+		enabled: boolean;
 		width: number;
 		breakpoint: number;
 		gap: number;
+		orderPreset: SidebarOrderPreset;
+		visibility: {
+			footer: boolean;
+			sentinel: boolean;
+			jobs: boolean;
+			agents: boolean;
+			todo: boolean;
+		};
 	};
 	scanner: {
 		username: string;
@@ -29,9 +40,18 @@ const DEFAULT_SETTINGS: WiloxUnifiedSettings = {
 		lastExpandedModule: "sidebar",
 	},
 	sidebar: {
+		enabled: true,
 		width: 38,
 		breakpoint: 115,
 		gap: 2,
+		orderPreset: "standard",
+		visibility: {
+			footer: true,
+			sentinel: true,
+			jobs: true,
+			agents: true,
+			todo: true,
+		},
 	},
 	scanner: {
 		username: "Wilox",
@@ -44,11 +64,13 @@ const DEFAULT_SETTINGS: WiloxUnifiedSettings = {
 };
 
 const COMMUNITY_RAIL_SLOT = Symbol.for("gentle-pi.community.rail-width");
+const COMMUNITY_SIDEBAR_ORDER_SLOT = Symbol.for("gentle-pi.community.sidebar.order");
 const COMMUNITY_REGISTRY_SLOT = Symbol.for("gentle-pi.community.wiloxdev.registry");
 const COMMUNITY_EXPANDED_SLOT = Symbol.for("gentle-pi.community.wiloxdev.expanded");
 
 const globalState = globalThis as typeof globalThis & {
 	[COMMUNITY_RAIL_SLOT]?: number;
+	[COMMUNITY_SIDEBAR_ORDER_SLOT]?: string[];
 	[COMMUNITY_REGISTRY_SLOT]?: Map<string, WiloxCommunityModule>;
 	[COMMUNITY_EXPANDED_SLOT]?: string | null;
 };
@@ -101,7 +123,14 @@ export function readWiloxSettings(): WiloxUnifiedSettings {
 					...current,
 					...data,
 					ui: { ...current.ui, ...(data.ui || {}) },
-					sidebar: { ...current.sidebar, ...(data.sidebar || {}) },
+					sidebar: {
+						...current.sidebar,
+						...(data.sidebar || {}),
+						visibility: {
+							...current.sidebar.visibility,
+							...(data.sidebar?.visibility || {}),
+						},
+					},
 					scanner: { ...current.scanner, ...(data.scanner || {}) },
 				};
 			}
@@ -256,44 +285,254 @@ export function applyWiloxDevOptimalDefaults(): void {
 	syncSidebarLayout(38);
 }
 
+export function getResolvedSidebarSections(preset: SidebarOrderPreset, visibility: Record<string, boolean>): string[] {
+	let rawOrder: string[] = [];
+	if (preset === "sentinel-top") {
+		rawOrder = ["sentinel", "footer", "jobs", "agents", "todo"];
+	} else if (preset === "tasks-first") {
+		rawOrder = ["footer", "todo", "jobs", "agents", "sentinel"];
+	} else {
+		// "standard"
+		rawOrder = ["footer", "sentinel", "jobs", "agents", "todo"];
+	}
+	return rawOrder.filter((id) => visibility[id] !== false);
+}
+
+export function updateGlobalSidebarOrder(): void {
+	const settings = readWiloxSettings();
+	const sections = getResolvedSidebarSections(settings.sidebar.orderPreset, settings.sidebar.visibility);
+	globalState[COMMUNITY_SIDEBAR_ORDER_SLOT] = sections;
+}
+
 /**
- * Módulo 1: Sidebar Geometry con terminología clara
+ * Módulo 1: Sidebar & Layout Manager · Distribución y Tarjetas
  */
 function registerSidebarModule(): void {
 	registerCommunityModule({
 		id: "sidebar",
-		title: "Sidebar Geometry",
-		order: 10,
-		summary: () => `${getActiveRailWidth()} cols · ${getActiveRailWidth() <= 38 ? "Compact" : "Standard"}`,
+		title: "Sidebar & Layout Manager · Distribución y Tarjetas",
+		order: 5,
+		summary: () => {
+			const s = readWiloxSettings().sidebar;
+			const presetNames: Record<SidebarOrderPreset, string> = {
+				standard: "Estándar",
+				"sentinel-top": "Sentinel Top",
+				"tasks-first": "Tareas Primero",
+			};
+			const activeCount = Object.values(s.visibility).filter(Boolean).length;
+			return `${s.width} cols · ${presetNames[s.orderPreset]} (${activeCount} activas)`;
+		},
 		rows: [
 			{
-				id: "sidebar-toggle",
-				label: () => getActiveRailWidth() === 38
-					? "Width: [38 cols · Compact] ➔ Enter to switch to [50 cols · Standard]"
-					: "Width: [50 cols · Standard] ➔ Enter to switch to [38 cols · Compact]",
-				preview: () => ({
-					title: "WiloxDev · Sidebar Geometry",
-					sample: getActiveRailWidth() === 38
-						? "[Compact: 38 cols] · Optimizes horizontal terminal space · Expands chat transcript width"
-						: "[Standard: 50 cols] · Original Gentle Shell rail dimensions",
-				}),
+				id: "sidebar-master-status",
+				label: () => {
+					const s = readWiloxSettings().sidebar;
+					return `Riel Derecho: [${s.enabled ? "ON" : "OFF"}]`;
+				},
+				preview: () => {
+					const s = readWiloxSettings().sidebar;
+					return {
+						title: "Sidebar · Master Switch",
+						sample: s.enabled
+							? "[ON] Riel lateral visible con distribución modular y tarjetas activas."
+							: "[OFF] Oculta por completo el riel lateral para maximizar el ancho del chat.",
+					};
+				},
 				action: () => {
-					const nextW = getActiveRailWidth() === 38 ? 50 : 38;
+					const s = readWiloxSettings().sidebar;
+					writeWiloxSettings({ sidebar: { ...s, enabled: !s.enabled } });
+					syncSidebarLayout();
+				},
+			},
+			{
+				id: "sidebar-width",
+				label: () => {
+					const s = readWiloxSettings().sidebar;
+					return `Ancho del Riel: [${s.width === 38 ? "38 cols · Compacto" : "50 cols · Standard"}]`;
+				},
+				preview: () => {
+					const s = readWiloxSettings().sidebar;
+					return {
+						title: "Sidebar · Geometría y Ancho",
+						sample: s.width === 38
+							? "[Compacto: 38 cols] · Optimiza el espacio horizontal en terminales medianas."
+							: "[Standard: 50 cols] · Dimensiones amplias oficiales de Gentle Shell.",
+					};
+				},
+				action: () => {
+					const s = readWiloxSettings().sidebar;
+					const nextW = s.width === 38 ? 50 : 38;
 					setActiveRailWidth(nextW);
 				},
 			},
 			{
-				id: "sidebar-preset",
-				label: () => `Layout preset: ${getActiveRailWidth() === 38 ? "Compact (38 cols, 2 gap, 115 bp)" : "Standard (50 cols, 3 gap, 140 bp)"}`,
+				id: "sidebar-order-preset",
+				label: () => {
+					const s = readWiloxSettings().sidebar;
+					const presetLabels: Record<SidebarOrderPreset, string> = {
+						standard: "1. Estándar (Status ➔ Sentinel ➔ Jobs ➔ Todo)",
+						"sentinel-top": "2. Sentinel Top (Sentinel ➔ Status ➔ Jobs ➔ Todo)",
+						"tasks-first": "3. Tareas Primero (Status ➔ Todo ➔ Jobs ➔ Sentinel)",
+					};
+					return `Esquema de Orden: [${presetLabels[s.orderPreset]}]`;
+				},
+				preview: () => {
+					const s = readWiloxSettings().sidebar;
+					const samples: Record<SidebarOrderPreset, string> = {
+						standard: [
+							"┌─ Preview: [1. Estándar] ────────────────────────────────────────┐",
+							"│ ✿ Gentle Shell ✿ (Banner Cabecera)                              │",
+							"│ 1. Status Bar (footer)      · Modelo activo y Git branch        │",
+							"│ 2. ⚡ CPAMC Sentinel        · Cuota, Líderes y Centinela        │",
+							"│ 3. Jobs & Tasks             · Procesos en segundo plano         │",
+							"│ 4. Agents                   · Subagentes activos                │",
+							"│ 5. Todo                     · Checklist de tareas               │",
+							"└─────────────────────────────────────────────────────────────────┘",
+						].join("\n"),
+						"sentinel-top": [
+							"┌─ Preview: [2. Sentinel Top] (Monitoreo Prioritario) ────────────┐",
+							"│ ✿ Gentle Shell ✿ (Banner Cabecera)                              │",
+							"│ 1. ⚡ CPAMC Sentinel        · Cuota, Líderes y Centinela [TOP]  │",
+							"│ 2. Status Bar (footer)      · Modelo activo y Git branch        │",
+							"│ 3. Jobs & Tasks             · Procesos en segundo plano         │",
+							"│ 4. Agents                   · Subagentes activos                │",
+							"│ 5. Todo                     · Checklist de tareas               │",
+							"└─────────────────────────────────────────────────────────────────┘",
+						].join("\n"),
+						"tasks-first": [
+							"┌─ Preview: [3. Tareas Primero] (Enfoque Productividad) ──────────┐",
+							"│ ✿ Gentle Shell ✿ (Banner Cabecera)                              │",
+							"│ 1. Status Bar (footer)      · Modelo activo y Git branch        │",
+							"│ 2. Todo                     · Checklist de tareas [PRIORIDAD]   │",
+							"│ 3. Jobs & Tasks             · Procesos en segundo plano         │",
+							"│ 4. Agents                   · Subagentes activos                │",
+							"│ 5. ⚡ CPAMC Sentinel        · Cuota al pie del riel             │",
+							"└─────────────────────────────────────────────────────────────────┘",
+						].join("\n"),
+					};
+					return {
+						title: "Sidebar · Esquema de Distribución",
+						sample: samples[s.orderPreset],
+					};
+				},
+				action: () => {
+					const s = readWiloxSettings().sidebar;
+					const cycle: SidebarOrderPreset[] = ["standard", "sentinel-top", "tasks-first"];
+					const nextIdx = (cycle.indexOf(s.orderPreset) + 1) % cycle.length;
+					const nextPreset = cycle[nextIdx]!;
+					writeWiloxSettings({ sidebar: { ...s, orderPreset: nextPreset } });
+					updateGlobalSidebarOrder();
+					syncSidebarLayout();
+				},
+			},
+			{
+				id: "sidebar-vis-status",
+				label: () => {
+					const s = readWiloxSettings().sidebar;
+					return `Tarjeta Status (footer): [${s.visibility.footer ? "ON" : "OFF"}]`;
+				},
 				preview: () => ({
-					title: "WiloxDev · Sidebar Geometry",
-					sample: getActiveRailWidth() === 38
-						? "Compact preset: activates on terminals >= 115 cols, rail width 38, gap 2."
-						: "Standard preset: activates on terminals >= 140 cols, rail width 50, gap 3.",
+					title: "Tarjeta Status Bar (Modelo & Git)",
+					sample: "Muestra el modelo de IA conectado, rama actual de git y estado de MCPs.",
 				}),
 				action: () => {
-					const nextW = getActiveRailWidth() === 38 ? 50 : 38;
-					setActiveRailWidth(nextW);
+					const s = readWiloxSettings().sidebar;
+					writeWiloxSettings({
+						sidebar: {
+							...s,
+							visibility: { ...s.visibility, footer: !s.visibility.footer },
+						},
+					});
+					updateGlobalSidebarOrder();
+					syncSidebarLayout();
+				},
+			},
+			{
+				id: "sidebar-vis-sentinel",
+				label: () => {
+					const s = readWiloxSettings().sidebar;
+					return `Tarjeta Sentinel (CPAMC): [${s.visibility.sentinel ? "ON" : "OFF"}]`;
+				},
+				preview: () => ({
+					title: "Tarjeta CPAMC Sentinel",
+					sample: "Telemetría viva de cuotas, reloj de 5h/semanal, líderes y centinela Cuidando el Chat.",
+				}),
+				action: () => {
+					const s = readWiloxSettings().sidebar;
+					writeWiloxSettings({
+						sidebar: {
+							...s,
+							visibility: { ...s.visibility, sentinel: !s.visibility.sentinel },
+						},
+					});
+					updateGlobalSidebarOrder();
+					syncSidebarLayout();
+				},
+			},
+			{
+				id: "sidebar-vis-jobs",
+				label: () => {
+					const s = readWiloxSettings().sidebar;
+					return `Tarjeta Jobs / Tareas: [${s.visibility.jobs ? "ON" : "OFF"}]`;
+				},
+				preview: () => ({
+					title: "Tarjeta Jobs (Procesos en segundo plano)",
+					sample: "Muestra las tareas asíncronas y comandos en segundo plano en ejecución.",
+				}),
+				action: () => {
+					const s = readWiloxSettings().sidebar;
+					writeWiloxSettings({
+						sidebar: {
+							...s,
+							visibility: { ...s.visibility, jobs: !s.visibility.jobs },
+						},
+					});
+					updateGlobalSidebarOrder();
+					syncSidebarLayout();
+				},
+			},
+			{
+				id: "sidebar-vis-agents",
+				label: () => {
+					const s = readWiloxSettings().sidebar;
+					return `Tarjeta Agents / Subagentes: [${s.visibility.agents ? "ON" : "OFF"}]`;
+				},
+				preview: () => ({
+					title: "Tarjeta Agents (Planned Workflow)",
+					sample: "Indica el estado del orquestador y los subagentes delegados (00-discovery a 03-verify).",
+				}),
+				action: () => {
+					const s = readWiloxSettings().sidebar;
+					writeWiloxSettings({
+						sidebar: {
+							...s,
+							visibility: { ...s.visibility, agents: !s.visibility.agents },
+						},
+					});
+					updateGlobalSidebarOrder();
+					syncSidebarLayout();
+				},
+			},
+			{
+				id: "sidebar-vis-todo",
+				label: () => {
+					const s = readWiloxSettings().sidebar;
+					return `Tarjeta Todo / Checklist: [${s.visibility.todo ? "ON" : "OFF"}]`;
+				},
+				preview: () => ({
+					title: "Tarjeta Todo (Checklist)",
+					sample: "Lista de pasos completados y pendientes del plan de trabajo activo.",
+				}),
+				action: () => {
+					const s = readWiloxSettings().sidebar;
+					writeWiloxSettings({
+						sidebar: {
+							...s,
+							visibility: { ...s.visibility, todo: !s.visibility.todo },
+						},
+					});
+					updateGlobalSidebarOrder();
+					syncSidebarLayout();
 				},
 			},
 		],
@@ -546,7 +785,11 @@ export function syncSidebarLayout(targetWidth?: number): boolean {
 			if (!content.includes("COMMUNITY_RAIL_SLOT")) {
 				const injection = `
 const COMMUNITY_RAIL_SLOT = Symbol.for("gentle-pi.community.rail-width");
-const communityState = globalThis as typeof globalThis & { [COMMUNITY_RAIL_SLOT]?: number };
+const COMMUNITY_SIDEBAR_ORDER_SLOT = Symbol.for("gentle-pi.community.sidebar.order");
+const communityState = globalThis as typeof globalThis & {
+	[COMMUNITY_RAIL_SLOT]?: number;
+	[COMMUNITY_SIDEBAR_ORDER_SLOT]?: string[];
+};
 
 export function communityRailWidth(): number {
 	return typeof communityState[COMMUNITY_RAIL_SLOT] === "number" ? communityState[COMMUNITY_RAIL_SLOT]! : RAIL_WIDTH;
@@ -554,8 +797,22 @@ export function communityRailWidth(): number {
 export function setCommunityRailWidth(width: number): void {
 	communityState[COMMUNITY_RAIL_SLOT] = width;
 }
+export function communitySidebarSections(): string[] {
+	if (Array.isArray(communityState[COMMUNITY_SIDEBAR_ORDER_SLOT]) && communityState[COMMUNITY_SIDEBAR_ORDER_SLOT]!.length > 0) {
+		return communityState[COMMUNITY_SIDEBAR_ORDER_SLOT]!;
+	}
+	return ["footer", "sentinel", "jobs", "agents", "todo"];
+}
 `;
 				content = content.replace("export const SIDEBAR_RAIL_COLUMNS = RAIL_WIDTH + GAP;", `export const SIDEBAR_RAIL_COLUMNS = RAIL_WIDTH + GAP;\n${injection}`);
+				fileModified = true;
+			}
+
+			// Parcheo dinámico de sections en el riel
+			const sectionsStatic = 'const sections = ["footer", "jobs", "agents", "todo"]';
+			const sectionsDynamic = 'const sections = (typeof communitySidebarSections === "function" ? communitySidebarSections() : ["footer", "sentinel", "jobs", "agents", "todo"])';
+			if (content.includes(sectionsStatic)) {
+				content = content.replace(sectionsStatic, sectionsDynamic);
 				fileModified = true;
 			}
 
@@ -726,6 +983,7 @@ export function initWiloxLayoutManager(): void {
 		globalState[COMMUNITY_EXPANDED_SLOT] = settings.ui.lastExpandedModule;
 
 		// 2. Registrar módulos del ecosistema
+		updateGlobalSidebarOrder();
 		registerSidebarModule();
 		registerChatScannerModule();
 
