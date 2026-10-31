@@ -59,7 +59,7 @@ import type { PoolRotationPair } from "./store.js";
 describe("Adapter Footer Formatting & Origin Indicator", () => {
 	beforeEach(() => {
 		runawayGuard.dismissIncident();
-		runawayGuard.resetTurn();
+		runawayGuard.resetSession();
 	});
 	const mockNativePair: PoolRotationPair = {
 		poolKey: "native",

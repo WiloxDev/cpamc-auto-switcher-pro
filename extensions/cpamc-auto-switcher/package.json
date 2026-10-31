@@ -9,6 +9,11 @@
       "index.ts"
     ]
   },
+  "wiloxCommunity": {
+    "moduleId": "cpamc-sentinel",
+    "title": "CPAMC Sentinel · Cuota, Telemetría & Cuidado del Chat",
+    "order": 10
+  },
   "scripts": {
     "test": "node --experimental-strip-types --test src/*.test.ts",
     "typecheck": "tsc --noEmit"

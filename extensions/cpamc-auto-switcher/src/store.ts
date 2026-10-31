@@ -1,5 +1,5 @@
-import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { resolveCandidateBaseUrls, resolveCpamcBaseUrl } from "./provider.js";
 
@@ -907,8 +907,8 @@ export interface QuotaTurnTelemetry {
 const PREF_FILE_NAME = "cpamc-preferences.json";
 
 function getPreferencesPath(): string {
-	const home = process.env.HOME || process.env.USERPROFILE || "";
-	return path.join(home, ".pi", "agent-wilox", PREF_FILE_NAME);
+	const home = process.env.HOME || process.env.USERPROFILE || homedir() || "";
+	return join(home, ".pi", "agent-wilox", PREF_FILE_NAME);
 }
 
 let activeViewMode: QuotaCardViewMode = "essential";
@@ -928,8 +928,8 @@ const MAX_EVENT_HISTORY = 40;
 export function loadQuotaCardPreferences(): { viewMode: QuotaCardViewMode; activeTab: QuotaCardTabId } {
 	try {
 		const prefPath = getPreferencesPath();
-		if (fs.existsSync(prefPath)) {
-			const raw = fs.readFileSync(prefPath, "utf-8");
+		if (existsSync(prefPath)) {
+			const raw = readFileSync(prefPath, "utf-8");
 			const parsed = JSON.parse(raw);
 			if (parsed.viewMode === "essential" || parsed.viewMode === "tabs") {
 				activeViewMode = parsed.viewMode;
@@ -953,14 +953,14 @@ export function saveQuotaCardPreferences(prefs: { viewMode?: QuotaCardViewMode; 
 
 	try {
 		const prefPath = getPreferencesPath();
-		const dir = path.dirname(prefPath);
-		if (!fs.existsSync(dir)) {
-			fs.mkdirSync(dir, { recursive: true });
+		const dir = dirname(prefPath);
+		if (!existsSync(dir)) {
+			mkdirSync(dir, { recursive: true });
 		}
 		const tmpPath = `${prefPath}.tmp-${Date.now()}`;
 		const payload = JSON.stringify({ viewMode: activeViewMode, activeTab: activeTabId }, null, 2);
-		fs.writeFileSync(tmpPath, payload, "utf-8");
-		fs.renameSync(tmpPath, prefPath);
+		writeFileSync(tmpPath, payload, "utf-8");
+		renameSync(tmpPath, prefPath);
 	} catch {
 		// Fallback silencioso en entornos restringidos de solo lectura
 	}

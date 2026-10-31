@@ -28,6 +28,7 @@ import {
 import { saveProjectModel, getProjectModel, clearProjectModel } from "./src/project-model-store.js";
 import { runawayGuard } from "./src/guards.js";
 import { showIncidentModal } from "./src/incident-modal.js";
+import { registerCpamcSentinelCustomizeModule } from "./src/wilox-community.js";
 import {
 	initWiloxLayoutManager,
 	readWiloxSettings,
@@ -92,6 +93,13 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 
 	// 3b. Inicializar comando /cpamc doctor (diagnóstico integral y autoreparación)
 	registerDoctorCommand(pi);
+
+	// 3b-bis. Registrar módulo en el Protocolo de Acordeón Modular WiloxDev (/gentle:customize)
+	try {
+		registerCpamcSentinelCustomizeModule(adapter);
+	} catch (err: any) {
+		console.error("cpamc-auto-switcher: fallo al registrar en /gentle:customize bus:", err?.message || err);
+	}
 
 	// 3b. Comando para restablecer el modelo del proyecto actual al default de Pi
 	pi.registerCommand("model-default", {

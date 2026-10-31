@@ -1436,6 +1436,7 @@ export class CpamcTuiAdapter {
 	public onOpenIncidentModal?: () => void;
 	private isFullscreen = false;
 	private isBusy = false;
+	private enabled = true;
 	private accordionMode: AccordionMode = "collapsed";
 	private peekRemainingSec = 0;
 	private peekTimer: NodeJS.Timeout | null = null;
@@ -1448,6 +1449,21 @@ export class CpamcTuiAdapter {
 
 	constructor(ctx: ExtensionContext | null) {
 		this.ctx = ctx;
+	}
+
+	isEnabled(): boolean {
+		return this.enabled;
+	}
+
+	setEnabled(val: boolean): void {
+		this.enabled = val;
+		this.requestRender();
+	}
+
+	toggleEnabled(): boolean {
+		this.enabled = !this.enabled;
+		this.requestRender();
+		return this.enabled;
 	}
 
 	getAccordionMode(): AccordionMode {
@@ -1679,6 +1695,7 @@ export class CpamcTuiAdapter {
 		const quotaCardPart = {
 			render: (width?: number) => {
 				try {
+					if (!self.enabled) return [];
 					self.lastStandaloneRenderTime = Date.now();
 					const m = self.safeGetModel();
 					const p = m ? (getRotationPairForModelSync(m.id, m.provider) || self.currentPair) : self.currentPair;
