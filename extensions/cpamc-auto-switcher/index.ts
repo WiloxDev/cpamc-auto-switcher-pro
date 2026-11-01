@@ -367,7 +367,7 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 			// Si no pasa argumentos y cuenta con UI interactiva, abrir selector interactivo
 			if (ctx.hasUI && typeof ctx.ui.select === "function") {
 				const current = getQuotaCardViewMode();
-				const choice = await ctx.ui.select("Estilo de visualización para la QuotaCard del Sidebar:", [
+				const choice = await (ctx.ui.select as any)("Estilo de visualización para la QuotaCard del Sidebar:", [
 					{
 						label: `${current === "essential" ? "● " : "  "}Modo Esencial / Compacto (Default)`,
 						description: "Tarjeta ligera, limpia y calibrada a 48 columnas sin distracciones",
@@ -380,11 +380,12 @@ export default function initCpamcUnifiedExtension(pi: ExtensionAPI): void {
 					},
 				]);
 
-				if (choice?.value) {
-					setQuotaCardViewMode(choice.value as QuotaCardViewMode);
+				const chosenValue = typeof choice === "object" && choice !== null ? choice.value : choice;
+				if (chosenValue) {
+					setQuotaCardViewMode(chosenValue as QuotaCardViewMode);
 					await adapter?.update(true, ctx);
 					ctx.ui.notify?.(
-						choice.value === "tabs"
+						chosenValue === "tabs"
 							? "⚡ QuotaCard: Modo Pro Pestañas Blessed activado."
 							: "✅ QuotaCard: Modo Esencial / Compacto activado.",
 						"info",

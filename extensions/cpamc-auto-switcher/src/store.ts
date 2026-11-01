@@ -96,6 +96,7 @@ export interface SwitcherAccount {
 	minAvailable: string;
 	reset5hInSec?: number;
 	resetWeeklyInSec?: number;
+	model?: string;
 }
 
 export interface PoolRotationPair {

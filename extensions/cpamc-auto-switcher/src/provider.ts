@@ -160,7 +160,7 @@ let cachedFilterData: {
     bareExclusions: Set<string>;
     registeredPoolBases: Set<string>;
     confirmedActivePools: Set<string>;
-    standaloneAccounts?: StandaloneAccountDescriptor[];
+    standaloneAccounts: StandaloneAccountDescriptor[];
 } | null = null;
 let lastKnownEpoch: string | null = null;
 

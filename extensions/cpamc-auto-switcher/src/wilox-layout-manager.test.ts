@@ -44,23 +44,27 @@ describe("Sidebar & Layout Manager (Universal Sidebar Dispatcher)", () => {
 		runawayGuard.resetSession();
 		runawayGuard.dismissIncident();
 
-		// Reset de prueba
-		writeWiloxSettings({
-			sidebar: {
-				enabled: true,
-				width: 38,
-				breakpoint: 115,
-				gap: 2,
-				orderPreset: "standard",
-				visibility: {
-					footer: true,
-					sentinel: true,
-					jobs: true,
-					agents: true,
-					todo: true,
-				},
-			},
-		});
+				// Reset de prueba
+				writeWiloxSettings({
+					sidebar: {
+						enabled: true,
+						width: 38,
+						breakpoint: 115,
+						gap: 2,
+						orderPreset: "standard",
+						customOrder: ["footer", "sentinel", "jobs", "agents", "todo"],
+						visibility: {
+							footer: true,
+							sentinel: true,
+							jobs: true,
+							agents: true,
+							todo: true,
+						},
+						adaptiveVerticalBudgeting: true,
+						floatingHudWhenDisabled: true,
+						smartFocusOnIncident: true,
+					},
+				});
 	});
 
 	it("1. resolves standard order preset with all cards visible", () => {

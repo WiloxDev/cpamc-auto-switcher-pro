@@ -178,16 +178,32 @@ export function readWiloxSettings(): WiloxUnifiedSettings {
 	return current;
 }
 
+export type DeepPartial<T> = {
+	[P in keyof T]?: T[P] extends (infer U)[]
+		? DeepPartial<U>[]
+		: T[P] extends readonly (infer U)[]
+			? readonly DeepPartial<U>[]
+			: T[P] extends object
+				? DeepPartial<T[P]>
+				: T[P];
+};
+
 /**
  * Escritura Atómica Crash-Safe (POSIX renameSync sobre archivo temporal con mode 0o600)
  */
-export function writeWiloxSettings(patch: Partial<WiloxUnifiedSettings>): WiloxUnifiedSettings {
+export function writeWiloxSettings(patch: DeepPartial<WiloxUnifiedSettings>): WiloxUnifiedSettings {
 	const current = readWiloxSettings();
 	const updated: WiloxUnifiedSettings = {
 		...current,
-		...patch,
 		ui: { ...current.ui, ...(patch.ui || {}) },
-		sidebar: { ...current.sidebar, ...(patch.sidebar || {}) },
+		sidebar: {
+			...current.sidebar,
+			...(patch.sidebar || {}),
+			visibility: {
+				...current.sidebar.visibility,
+				...(patch.sidebar?.visibility || {}),
+			},
+		},
 		scanner: { ...current.scanner, ...(patch.scanner || {}) },
 	};
 
