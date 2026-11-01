@@ -148,23 +148,23 @@ export async function runDiagnostics(ctx?: ExtensionContext): Promise<DoctorRepo
 		const tui = (ctx as any)?.tui;
 		const terminal = tui?.terminal as any;
 		const gentleState = terminal?.[Symbol.for("gentle-pi.experimental-sidebar.state")];
-		const hasCard = Boolean(gentleState?.parts?.has?.("cpamc-quota-card") || gentleState?.parts?.get?.("footer"));
+		const hasCard = Boolean(gentleState?.parts?.has?.("sentinel") || gentleState?.parts?.get?.("footer"));
 		if (hasCard) {
 			checks.push({
-				name: "Tarjeta cpamc-quota-card",
+				name: "Tarjeta Centinela (riel)",
 				ok: true,
 				detail: "Montada e interceptada orgánicamente en el riel de Gentle-Shell",
 			});
 		} else {
 			checks.push({
-				name: "Tarjeta cpamc-quota-card",
+				name: "Tarjeta Centinela (riel)",
 				ok: true,
 				detail: "Riel TUI listo (se proyecta automáticamente al activar el sidebar o seleccionar un modelo CPAMC)",
 			});
 		}
 	} catch {
 		checks.push({
-			name: "Tarjeta cpamc-quota-card",
+			name: "Tarjeta Centinela (riel)",
 			ok: true,
 			detail: "Estado TUI en espera de renderizado",
 		});

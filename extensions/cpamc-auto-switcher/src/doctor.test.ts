@@ -43,7 +43,7 @@ describe("Doctor Diagnostic Engine", () => {
 				{ name: "Servidor CPAMC", ok: true, detail: "En línea en http://127.0.0.1:8317 (HTTP 200, 4ms)" },
 				{ name: "Motor CGO (Auto Switcher Pro)", ok: true, detail: "Plugin activo (v0.1.1)" },
 				{ name: "SQLite WAL & Telemetría", ok: true, detail: "Canal activo (4 cuentas)" },
-				{ name: "Tarjeta cpamc-quota-card", ok: true, detail: "Montada e interceptada" },
+				{ name: "Tarjeta Centinela (riel)", ok: true, detail: "Montada e interceptada" },
 			],
 		};
 
@@ -62,7 +62,7 @@ describe("Doctor Diagnostic Engine", () => {
 				{ name: "Servidor CPAMC", ok: true, detail: "En línea" },
 				{ name: "Motor CGO (Auto Switcher Pro)", ok: false, detail: "Deshabilitado en config.yaml", autoFixable: true },
 				{ name: "SQLite WAL & Telemetría", ok: true, detail: "Activo" },
-				{ name: "Tarjeta cpamc-quota-card", ok: true, detail: "Montada" },
+				{ name: "Tarjeta Centinela (riel)", ok: true, detail: "Montada" },
 			],
 		};
 

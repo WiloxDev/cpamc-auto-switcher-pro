@@ -301,9 +301,11 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 		// Invalidate and inject
 		(adapter as any).injectIntoSidebar(gentleState);
 
-		const quotaWidget = parts.get("cpamc-quota-card");
-		assert.ok(quotaWidget, "quota widget must be registered under cpamc-quota-card");
-		assert.ok(parts.get("quota"), "quota widget must also be registered under quota");
+		// Fuente unica de verdad: la tarjeta vive solo bajo la clave del riel.
+		const quotaWidget = parts.get("sentinel");
+		assert.ok(quotaWidget, "quota widget must be registered under the rail section key");
+		assert.equal(parts.has("cpamc-quota-card"), false, "legacy alias key must not render");
+		assert.equal(parts.has("quota"), false, "legacy alias key must not render");
 
 		// Even when accessing model throws an error, render and digest MUST return safely without throwing
 		const renderedLines = quotaWidget.render();
@@ -432,7 +434,7 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 		adapter.destroy();
 	});
 
-	it("avoids duplicate rendering when Gentle-Shell already mounts cpamc-quota-card standalone", () => {
+	it("avoids duplicate rendering when Gentle-Shell already mounts the sentinel section", () => {
 		const mockContext: any = {
 			model: { id: "Pool-01-gemini", provider: "cpamc" },
 		};
@@ -451,8 +453,8 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 		// Inyectar en el sidebar
 		(adapter as any).injectIntoSidebar(gentleState);
 
-		const standaloneCard = parts.get("cpamc-quota-card");
-		assert.ok(standaloneCard, "standalone card should be registered");
+		const standaloneCard = parts.get("sentinel");
+		assert.ok(standaloneCard, "the rail section must be registered");
 
 		// Caso A: Si standaloneCard se renderiza de forma autónoma
 		const standaloneLines = standaloneCard.render(48);
@@ -951,5 +953,179 @@ describe("Adapter Footer Formatting & Origin Indicator", () => {
 			setQuotaCardViewMode("essential");
 			setActiveQuotaCardTab("quota");
 		});
+	});
+});
+
+describe("Quota Card Single-Source Rendering (sidebar duplication bug)", () => {
+	beforeEach(() => {
+		runawayGuard.dismissIncident();
+		runawayGuard.resetSession();
+		setQuotaCardViewMode("essential");
+	});
+
+	const cardPair: PoolRotationPair = {
+		poolKey: "Pool-01-gemini",
+		familyName: "Gemini",
+		familyIcon: "✨",
+		totalAccounts: 2,
+		isNativeReadOnly: false,
+		active: {
+			status: "[ACTIVE]",
+			provider: "cpamc",
+			profile: "default",
+			accountId: "acc-1",
+			prefix: "agy",
+			consumed5h: "10/100",
+			consumedWeekly: "50/500",
+			minAvailable: "95%",
+		},
+		next: {
+			status: "[RESERVE]",
+			provider: "cpamc",
+			profile: "default",
+			accountId: "acc-2",
+			prefix: "agy_1",
+			consumed5h: "0/100",
+			consumedWeekly: "0/500",
+			minAvailable: "100%",
+		},
+	};
+
+	const nativeNanPair: PoolRotationPair = {
+		poolKey: "nan/deepseek-v4-flash",
+		familyName: "DeepSeek",
+		familyIcon: "✨",
+		totalAccounts: 1,
+		isNativeReadOnly: true,
+		active: {
+			status: "[ACTIVE]",
+			provider: "cpamc",
+			profile: "default",
+			accountId: "nan/deepseek-v4-flash",
+			prefix: "",
+			consumed5h: "5/100",
+			consumedWeekly: "5/500",
+			minAvailable: "95%",
+		},
+	};
+
+	const nativeStatusRail = () => ({
+		render: () => ["╭─ Status ─╮", "│ Session  │", "╰──────────╯"],
+		digest: () => "status_1",
+		invalidate() {},
+	});
+
+	const buildAdapter = () => {
+		const adapter = new CpamcTuiAdapter({
+			model: { id: "Pool-01-gemini", provider: "cpamc" },
+		} as any);
+		(adapter as any).currentPair = cardPair;
+		return adapter;
+	};
+
+	// The card top border is the one line every mode and prefix variant emits.
+	const CARD_MARK = /╭─ ⚡/g;
+	const countCards = (lines: string[]) => (stripAnsi(lines.join("\n")).match(CARD_MARK) || []).length;
+
+	it("registers the quota card under exactly one sidebar key", () => {
+		const adapter = buildAdapter();
+		const parts = new Map<string, any>();
+		(adapter as any).injectIntoSidebar({ parts } as any);
+
+		assert.ok(parts.get("sentinel"), "the rail section key must stay registered");
+		assert.equal(parts.has("cpamc-quota-card"), false, "alias cpamc-quota-card must not be a renderable part");
+		assert.equal(parts.has("quota"), false, "alias quota must not be a renderable part");
+		adapter.destroy();
+	});
+
+	it("paints the card exactly once from the rail while the sidebar owns the surface", () => {
+		const adapter = buildAdapter();
+		const parts = new Map<string, any>();
+		const gentleState: any = { parts, ownsHost: () => true };
+		(adapter as any).isFullscreen = true;
+		(adapter as any).injectIntoSidebar(gentleState);
+
+		const rendered = (parts.get("sentinel").render(38) as string[]);
+		assert.equal(countCards(rendered), 1, "sentinel must emit one card");
+		adapter.destroy();
+	});
+
+	it("never stacks quota cards into footer when foreign compositors re-register it under the rail", () => {
+		const adapter = buildAdapter();
+		const parts = new Map<string, any>();
+		const gentleState: any = { parts, ownsHost: () => true };
+		(adapter as any).isFullscreen = true;
+		parts.set("footer", nativeStatusRail());
+		(adapter as any).injectIntoSidebar(gentleState);
+
+		// Simulate two re-mounts by another extension that wraps the current rail
+		// (wellness-reloj / discord-voice compositor pattern).
+		for (let i = 0; i < 2; i++) {
+			const base = parts.get("footer");
+			parts.set("footer", {
+				__isWiloxSlotsCompositor: true,
+				render: (w?: number) => ["╭─ Slots ─╮", ...base.render(w)],
+				digest: () => `slots_${i}`,
+				invalidate() {},
+			});
+		}
+
+		const out = parts.get("footer").render(48) as string[];
+		const text = stripAnsi(out.join("\n"));
+		assert.match(text, /Slots/, "foreign compositor content must survive");
+		assert.equal(countCards(out), 0, "the footer must not paint the card while the rail owns it");
+		adapter.destroy();
+	});
+
+	it("does not append a second card in regular mode when a deeper layer already painted one", () => {
+		const adapter = buildAdapter();
+		const parts = new Map<string, any>();
+		const gentleState: any = { parts };
+		(adapter as any).isFullscreen = false;
+
+		const deeperCard = formatSidebarQuotaCardLines(cardPair, 48);
+		parts.set("footer", {
+			render: () => ["╭─ Status ─╮", "│ Session  │", "╰──────────╯", "", ...deeperCard],
+			digest: () => "status_with_card",
+			invalidate() {},
+		});
+		(adapter as any).injectIntoSidebar(gentleState);
+
+		const out = parts.get("footer").render(48) as string[];
+		assert.equal(countCards(out), 1, "exactly one quota card may reach the screen");
+		adapter.destroy();
+	});
+
+	it("keeps appending the card in regular mode when no layer painted it yet", () => {
+		const adapter = buildAdapter();
+		const parts = new Map<string, any>();
+		(adapter as any).isFullscreen = false;
+		parts.set("footer", nativeStatusRail());
+		(adapter as any).injectIntoSidebar({ parts } as any);
+
+		const out = parts.get("footer").render(48) as string[];
+		assert.match(stripAnsi(out.join("\n")), /Status/);
+		assert.equal(countCards(out), 1, "regular mode must still surface exactly one card");
+		adapter.destroy();
+	});
+
+	it("trades the idle badge for the model name instead of truncating the name", () => {
+		const longNative: PoolRotationPair = { ...nativeNanPair, poolKey: "nan/gemini-2.5-pro-long-id" };
+		const text = stripAnsi(formatSidebarQuotaCardLines(longNative, 48).join("\n"));
+		assert.match(text, /CUENTA FIJA/, "la palabra de modo es contrato fijo de cabecera");
+		assert.match(text, /gemini-2\.5-pro-long-id/, "el nombre completo debe poder leerse");
+		assert.doesNotMatch(text, /\[○ Esperando\]/, "un badge de espera cede sus columnas al nombre");
+	});
+
+	it("keeps the live state badge and the pool word in the header", () => {
+		const text = stripAnsi(formatSidebarQuotaCardLines(cardPair, 48, undefined, undefined, true).join("\n"));
+		assert.match(text, /\[● Escribiendo\]/, "un badge informativo nunca se sacrifica");
+		assert.match(text, /⚡ POOL: Gemini/);
+	});
+
+	it("shows a readable account label instead of the bogus nan vendor segment", () => {
+		const text = stripAnsi(formatSidebarQuotaCardLines(nativeNanPair, 38).join("\n"));
+		assert.doesNotMatch(text, /CUENTA: nan\b/, "the header must not render the bare vendor artifact");
+		assert.match(text, /deepseek/, "the model family must stay readable at rail width");
 	});
 });

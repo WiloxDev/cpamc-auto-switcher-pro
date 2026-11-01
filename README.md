@@ -114,9 +114,9 @@ Una vez concluida la instalación, realiza esta comprobación en tu terminal:
 
 ---
 
-## 🖥️ La Experiencia en Terminal: `cpamc-quota-card`
+## 🖥️ La Experiencia en Terminal: la tarjeta Centinela del riel
 
-En **Gentle-Shell**, la tarjeta se ancla de forma nativa en el riel lateral derecho (debajo del bloque de *Status*), ofreciendo telemetría visual continua sin saturar la conversación:
+En **Gentle-Shell**, la tarjeta se ancla de forma nativa en el riel lateral derecho como sección `sentinel` (su posición se reordena con *Sidebar & Layout Manager* o `/gentle:sidebar-style`). Es **fuente única**: se registra una sola vez, y en modo regular (sin riel montado) el adaptador la agrega debajo del bloque de *Status*, sin apilar copias aunque otras extensiones re-envuelvan el footer:
 
 ```text
 ╭─ ⚡ POOL: Gemini ─ [● Activo LIVE] ──────────╮

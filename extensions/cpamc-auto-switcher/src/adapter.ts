@@ -50,6 +50,39 @@ export function stripAnsi(str: string): string {
 	return str.replace(ANSI_REGEX, "").replace(OSC8_REGEX, "");
 }
 
+const QUOTA_CARD_TITLE_REGEX = /⚡ (CUENTA|CUENTAS|POOL)/;
+
+/**
+ * True when some layer already painted the quota card into these rail lines.
+ * Foreign compositors (wellness-reloj, discord-voice) re-wrap "footer" with their
+ * own markers, so the nesting depth is not a trustworthy signal; the rendered
+ * content is. Used only to stop a second copy from stacking, never to hide the
+ * card the footer itself owns.
+ */
+export function containsQuotaCardLines(lines: string[]): boolean {
+	return lines.some((line) => typeof line === "string" && QUOTA_CARD_TITLE_REGEX.test(stripAnsi(line)));
+}
+
+const BOGUS_VENDOR_SEGMENT_REGEX = /^(nan|null|undefined|none|-)$/i;
+const MIN_HEADER_LABEL_W = 10;
+
+/**
+ * CLIProxyAPI/CPAMC entrega ids de modelo cuyo segmento de vendor no resolvió,
+ * p. ej. "nan/deepseek-v4-flash". Al mostrar, se descarta ese artefacto; la clave
+ * cruda (`poolKey`, `accountId`) sigue intacta para rotación, cache y lookups.
+ * Un nombre humano real ("Rafa-NaN") no se toca: solo se limpian segmentos exactos.
+ */
+export function sanitizePoolLabel(raw: string | undefined): string {
+	const value = (raw || "").trim();
+	if (!value) return "";
+	const segments = value.split("/");
+	if (segments.length > 1 && BOGUS_VENDOR_SEGMENT_REGEX.test(segments[0])) {
+		const kept = segments.slice(1).join("/");
+		if (kept) return kept;
+	}
+	return BOGUS_VENDOR_SEGMENT_REGEX.test(value) ? "" : value;
+}
+
 export function truncateWithAnsi(str: string, maxW: number): string {
 	if (maxW <= 0) return "";
 	if (visibleLen(str) <= maxW) return str;
@@ -146,7 +179,7 @@ export function formatFooterRotationBlock(pair: PoolRotationPair | null, isBusy 
 
 	if (pair.isNativeReadOnly) {
 		const pActiveColor = pctColor(pair.active.minAvailable);
-		const activeLabel = pair.active.prefix || pair.active.accountId;
+		const activeLabel = sanitizePoolLabel(pair.active.prefix || pair.active.accountId) || pair.active.accountId;
 		const hInfo = pair.active.consumed5h ? `${pair.active.consumed5h}` : "";
 		const wInfo = pair.active.consumedWeekly ? `${pair.active.consumedWeekly}` : "";
 		const cd = [hInfo, wInfo].filter(Boolean).join("/");
@@ -156,7 +189,7 @@ export function formatFooterRotationBlock(pair: PoolRotationPair | null, isBusy 
 
 	const icon = isBusy ? `${PLAY_COLOR}▶${RESET}` : `${PAUSE_COLOR}⏸${RESET}`;
 	const pActiveColor = pctColor(pair.active.minAvailable);
-	const activeLabel = pair.active.prefix || pair.active.accountId;
+	const activeLabel = sanitizePoolLabel(pair.active.prefix || pair.active.accountId) || pair.active.accountId;
 	const activePart = `${icon} ${LEADER_COLOR}${activeLabel}${RESET} ${pActiveColor}${pair.active.minAvailable}${RESET}`;
 
 	if (!pair.next) {
@@ -165,7 +198,7 @@ export function formatFooterRotationBlock(pair: PoolRotationPair | null, isBusy 
 
 	const nextIcon = `\x1b[38;2;157;124;216m⏭${RESET}`;
 	const pNextColor = pctColor(pair.next.minAvailable);
-	const nextLabel = pair.next.prefix || pair.next.accountId;
+	const nextLabel = sanitizePoolLabel(pair.next.prefix || pair.next.accountId) || pair.next.accountId;
 	const nextPart = `${nextIcon} ${NEXT_COLOR}${nextLabel}${RESET} ${pNextColor}${pair.next.minAvailable}${RESET}`;
 
 	return `${SEP} ${activePart} ${SEP} ${nextPart}${originPart}`;
@@ -806,8 +839,8 @@ export function formatSidebarQuotaCardLines(
 	if (width < 20) {
 		// Modo ultra-compacto si el ancho disponible es extremadamente pequeño
 		if (!pair) return [truncateWithAnsi("⚡ Sin pool activo", width)];
-		const activeLabel = pair.active.prefix || pair.active.accountId;
-		return [truncateWithAnsi(`⚡ ${pair.poolKey}: ${activeLabel} (${pair.active.minAvailable})`, width)];
+		const activeLabel = sanitizePoolLabel(pair.active.prefix || pair.active.accountId) || pair.active.accountId;
+		return [truncateWithAnsi(`⚡ ${sanitizePoolLabel(pair.poolKey) || pair.poolKey}: ${activeLabel} (${pair.active.minAvailable})`, width)];
 	}
 
 	const safeW = width;
@@ -850,7 +883,7 @@ export function formatSidebarQuotaCardLines(
 	if (currentViewMode === "tabs") {
 		const topTabs = renderQuotaCardTabBar(innerW, currentTab, s);
 		const tabHeaderLine = fitToWidth(`${s.border("│")} ${topTabs.line} ${s.border("│")}`, safeW);
-		const cardTitle = pair.isNativeReadOnly ? "⚡ CUENTA DIRECTA" : `⚡ POOL: ${pair.poolKey}`;
+		const cardTitle = pair.isNativeReadOnly ? "⚡ CUENTA DIRECTA" : `⚡ POOL: ${sanitizePoolLabel(pair.poolKey) || pair.poolKey}`;
 		const topPrefix = `${s.border("╭─ ")}${s.accent(cardTitle)} ${s.border("─")}`;
 		const prefixLen = visibleLen(topPrefix);
 		const topRules = Math.max(1, safeW - prefixLen - 1);
@@ -952,24 +985,43 @@ export function formatSidebarQuotaCardLines(
 		stateTag = s.live("[● Escribiendo]");
 	}
 
-	const tagW = visibleLen(stateTag);
-	const prefixLabel = pair.isNativeReadOnly
+	const fullPrefixLabel = pair.isNativeReadOnly
 		? (safeW <= 40 ? "⚡ CUENTA: " : "⚡ CUENTA FIJA: ")
 		: "⚡ POOL: ";
-	const fixedPrefixW = visibleLen("╭─ ") + visibleLen(prefixLabel) + visibleLen(" ─ ") + tagW + visibleLen(" ─") + 2;
-	const maxFamilyW = Math.max(3, safeW - fixedPrefixW);
-	const familyDisplay = truncateWithAnsi(
-		pair.isNativeReadOnly ? pair.poolKey : pair.familyName,
-		maxFamilyW,
-	);
-	const titlePrefix = `${s.border("╭─ ")}${s.accent(prefixLabel)}${s.textWhite(familyDisplay)} ${s.border("─ ")}${stateTag} ${s.border("─")}`;
+	const headerLabel = sanitizePoolLabel(pair.isNativeReadOnly ? pair.poolKey : pair.familyName)
+		|| (pair.isNativeReadOnly ? "Directa" : "Pool");
+
+	// Un riel angosto no da para prefijo + nombre + badge. El piso anterior
+	// (Math.max(3, ...)) recortaba el nombre a "nan/". Orden de renuncia: primero se
+	// suelta el badge de espera (no aporta información), después se abrevia el prefijo,
+	// y el nombre es lo último que se recorta. Un badge activo (Escribiendo, Cuota
+	// baja) se conserva siempre que quede un número legible de columnas.
+	const stateTagCarriesInfo = isAmber || isBusy;
+	const headerCandidates = [
+		{ prefix: fullPrefixLabel, tag: stateTag },
+		...(stateTagCarriesInfo ? [] : [{ prefix: fullPrefixLabel, tag: "" }]),
+		{ prefix: "⚡ ", tag: stateTag },
+		{ prefix: "⚡ ", tag: "" },
+	];
+	const headerLabelBudget = (candidate: { prefix: string; tag: string }) =>
+		safeW - (visibleLen("╭─ ") + visibleLen(candidate.prefix) + visibleLen(candidate.tag ? ` ─ ${candidate.tag} ─` : " ─") + 2);
+	const labelW = visibleLen(headerLabel);
+	const chosenHeader = headerCandidates.find((candidate) => headerLabelBudget(candidate) >= labelW)
+		?? headerCandidates.find((candidate) => headerLabelBudget(candidate) >= MIN_HEADER_LABEL_W)
+		?? headerCandidates.reduce((best, candidate) => (headerLabelBudget(candidate) > headerLabelBudget(best) ? candidate : best), headerCandidates[0]!);
+	const maxFamilyW = Math.max(1, headerLabelBudget(chosenHeader));
+	const familyDisplay = truncateWithAnsi(headerLabel, maxFamilyW);
+	const titleSuffix = chosenHeader.tag
+		? ` ${s.border("─ ")}${chosenHeader.tag} ${s.border("─")}`
+		: ` ${s.border("─")}`;
+	const titlePrefix = `${s.border("╭─ ")}${s.accent(chosenHeader.prefix)}${s.textWhite(familyDisplay)}${titleSuffix}`;
 	const prefixLen = visibleLen(titlePrefix);
 	const titleRules = Math.max(1, safeW - prefixLen - 1);
 	const top = fitToWidth(`${titlePrefix}${s.border("─".repeat(titleRules) + "╮")}`, safeW);
 	const bottom = fitToWidth(s.border("╰" + "─".repeat(Math.max(1, safeW - 2)) + "╯"), safeW);
 
-	const activeAccountLabel = pair.active.prefix || pair.active.accountId;
-	const nextAccountLabel = pair.next ? (pair.next.prefix || pair.next.accountId) : "";
+	const activeAccountLabel = sanitizePoolLabel(pair.active.prefix || pair.active.accountId) || pair.active.accountId;
+	const nextAccountLabel = pair.next ? (sanitizePoolLabel(pair.next.prefix || pair.next.accountId) || pair.next.accountId) : "";
 
 	// Estado coloquial de la cuenta activa
 	let activeStateLabel = isAmber
@@ -1179,7 +1231,8 @@ export function formatSidebarQuotaCardLines(
 			const spStand = Math.max(1, innerW - visibleLen(leftStand) - visibleLen(rightStand));
 			headerRow2 = fitToWidth(`${s.border("│")} ${leftStand}${" ".repeat(spStand)}${rightStand} ${s.border("│")}`, safeW);
 		} else {
-			const leftPool = innerW < 40 ? s.text(pair.poolKey) : `${s.muted("Modelo")} ${s.text(pair.poolKey)}`;
+			const displayPoolKey = sanitizePoolLabel(pair.poolKey) || pair.poolKey;
+			const leftPool = innerW < 40 ? s.text(displayPoolKey) : `${s.muted("Modelo")} ${s.text(displayPoolKey)}`;
 			const rightPool = hasActiveInterception
 				? `${s.amber("Frenando bucles")}`
 				: innerW < 40
@@ -1217,7 +1270,7 @@ export function formatSidebarQuotaCardLines(
 
 			const rotBaseTitle = `${s.cyan("🔄 ROTACIONES & LIDERAZGO")}`;
 			const maxPoolKeyW = Math.max(6, innerW - visibleLen(rotBaseTitle) - 3);
-			const poolKeyTrunc = truncateWithAnsi(pair.poolKey, maxPoolKeyW);
+			const poolKeyTrunc = truncateWithAnsi(sanitizePoolLabel(pair.poolKey) || pair.poolKey, maxPoolKeyW);
 			const rotFullTitle = `${rotBaseTitle} ${s.border("·")} ${s.text(poolKeyTrunc)}`;
 			const rotPad = Math.max(0, innerW - visibleLen(rotFullTitle));
 			const rotHeader = fitToWidth(`${s.border("│")} ${rotFullTitle}${" ".repeat(rotPad)} ${s.border("│")}`, safeW);
@@ -1234,7 +1287,7 @@ export function formatSidebarQuotaCardLines(
 			const sustainedTurns = lifecycle?.sustained_turns ?? 142;
 			const sessBaseTitle = `${s.cyan("📊 TELEMETRÍA DE SESIÓN")}`;
 			const maxKeyW = Math.max(6, innerW - visibleLen(sessBaseTitle) - 3);
-			const keyTrunc = truncateWithAnsi(pair.poolKey, maxKeyW);
+			const keyTrunc = truncateWithAnsi(sanitizePoolLabel(pair.poolKey) || pair.poolKey, maxKeyW);
 			const sessFullTitle = `${sessBaseTitle} ${s.border("·")} ${s.text(keyTrunc)}`;
 			const sessPad = Math.max(0, innerW - visibleLen(sessFullTitle));
 			const sessHeader = fitToWidth(`${s.border("│")} ${sessFullTitle}${" ".repeat(sessPad)} ${s.border("│")}`, safeW);
@@ -1705,6 +1758,34 @@ export class CpamcTuiAdapter {
 	private decoratedFooter: any = null;
 	private lastStandaloneRenderTime = 0;
 
+	/**
+	 * Decide si la tarjeta la pinta el riel (fullscreen) o el footer (modo regular).
+	 * `state.active` no sirve como señal: gentle-pi lo deriva del ancho
+	 * (`railLines.every((line) => visibleWidth(line) <= contentWidth)`), por lo que una
+	 * sola línea desbordada lo deja en false de forma permanente y el footer vuelve a
+	 * sumar otra copia. `ownsHost()` es la señal de montaje del propio riel.
+	 */
+	private railOwnsQuotaCard(gentleState: any): boolean {
+		if (!gentleState?.parts?.has?.("sentinel")) return false;
+
+		const ownsHost = gentleState.ownsHost;
+		if (typeof ownsHost === "function") {
+			try {
+				if (ownsHost() !== true) return false;
+			} catch {
+				return false;
+			}
+		} else if (!this.isFullscreen) {
+			return false;
+		}
+
+		const order = (globalThis as any)[Symbol.for("gentle-pi.community.sidebar.order")];
+		const sections = Array.isArray(order) && order.length > 0
+			? order
+			: ["footer", "sentinel", "jobs", "agents", "todo"];
+		return sections.includes("sentinel");
+	}
+
 	private injectIntoSidebar(gentleState: any): void {
 		if (!gentleState?.parts) return;
 
@@ -1757,21 +1838,15 @@ export class CpamcTuiAdapter {
 			},
 		};
 
+		// Fuente única de verdad: la tarjeta se registra una sola vez, bajo la clave
+		// que el riel sabe dibujar ("sentinel"). Antes se replicaba además bajo
+		// "cpamc-quota-card" y "quota": eran entradas reales del Map, así que cualquier
+		// consumidor que recorra `parts` (o un orden de secciones que las incluya)
+		// pinta una copia idéntica más.
 		gentleState.parts.set("sentinel", quotaCardPart);
 
-		// Aliases delegados de solo lectura para retrocompatibilidad transparente (cero duplicación en RAM)
-		const createDelegatedAlias = (targetKey: string) => ({
-			get __isCpamcAlias() { return true; },
-			render: (w?: number) => gentleState.parts.get(targetKey)?.render?.(w) ?? [],
-			digest: () => gentleState.parts.get(targetKey)?.digest?.() ?? "",
-			invalidate: () => gentleState.parts.get(targetKey)?.invalidate?.(),
-			handleMouse: (ev: any) => gentleState.parts.get(targetKey)?.handleMouse?.(ev),
-		});
-
-		gentleState.parts.set("cpamc-quota-card", createDelegatedAlias("sentinel"));
-		gentleState.parts.set("quota", createDelegatedAlias("sentinel"));
-
-		// 2. Interceptor reactivo universal sobre "footer" con protección anti-duplicación
+		// 2. Interceptor reactivo sobre "footer" — SOLO en modo regular (riel sin montar).
+		// Con el riel montado, la sección "sentinel" ya renderiza la quota card.
 		const wrapFooter = (originalRail: any) => {
 			if (!originalRail || originalRail.__isCpamcDecorated) {
 				return originalRail;
@@ -1789,10 +1864,12 @@ export class CpamcTuiAdapter {
 							baseLines = [];
 						}
 
-						// Mecanismo Anti-Duplicación: Si Gentle-Shell ya está renderizando cpamc-quota-card de forma autónoma
-						// (recientemente en los últimos 2000ms), evitamos duplicar la tarjeta en el footer.
+						// Anti-duplicación. El footer solo pinta la tarjeta cuando el riel no la
+						// está pintando, y nunca cuando una capa más profunda ya la pintó: los
+						// compositores de otras extensiones re-envuelven "footer" con sus propios
+						// marcadores, así que la profundidad del encadenado no es confiable.
 						const isStandaloneActive = Date.now() - self.lastStandaloneRenderTime < 2000;
-						if (isStandaloneActive) {
+						if (self.railOwnsQuotaCard(gentleState) || isStandaloneActive || containsQuotaCardLines(baseLines)) {
 							return baseLines;
 						}
 
@@ -1879,6 +1956,11 @@ export class CpamcTuiAdapter {
 
 						// Si el click fue en la tarjeta de Status original de arriba, delegar
 						if (typeof event.y === "number" && event.y < quotaStartY) {
+							return originalRail.handleMouse?.(event);
+						}
+
+						// Los clicks de la tarjeta solo son del footer cuando el footer la pintó
+						if (self.railOwnsQuotaCard(gentleState)) {
 							return originalRail.handleMouse?.(event);
 						}
 

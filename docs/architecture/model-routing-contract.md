@@ -158,7 +158,7 @@ addModel(cleanPoolName, cleanPoolName)  // ID y DisplayName idénticos
 
 ### 3. Coexistencia Unificada de Superficies (Sidebar + Footer)
 - **Pantallas Grandes ($\ge 120$ columnas)**:
-  - **Sidebar Lateral**: Tarjeta reactiva `⚡ CPAMC POOL` (`cpamc-quota-card`) con barras segmentadas `▰▰▱▱▱▱` de 5 horas y ciclo semanal, identificando al `active_leader` de RAM y la siguiente reserva en cola.
+  - **Sidebar Lateral**: Tarjeta reactiva `⚡ CPAMC POOL` (sección `sentinel`, registrada una única vez) con barras segmentadas `▰▰▱▱▱▱` de 5 horas y ciclo semanal, identificando al `active_leader` de RAM y la siguiente reserva en cola.
   - **Barra Inferior (Footer TUI)**: Telemetría compacta con estado del bucle (`⏸` / `▶`), porcentaje disponible mínimo y cuentas regresivas de expiración cíclica (`↻ 4h/6d`).
 - **Pantallas Estándar / Compactas ($< 120$ columnas)**:
   - El sidebar se contrae automáticamente y la barra inferior preserva la observabilidad completa de cuotas y rotación.
