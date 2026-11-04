@@ -626,26 +626,12 @@ install_extension() {
         fi
     fi
 
-    # Si no había config.json o configured_home no existía, evaluar fallbacks respetando no duplicar
+    # Fallback canónico para Gentle-Shell si no se configuró explícitamente
     if [ -z "$configured_home" ]; then
-        if [ -d "$HOME/.pi/gentle-shell" ]; then
-            target_agent_dirs+=("$HOME/.pi/gentle-shell")
-            echo -e "Detectado agente: ${GREEN}Gentle Shell${RESET} (~/.pi/gentle-shell)"
-        elif [ -d "$HOME/.gentle-shell/agent" ]; then
+        if [ -d "$HOME/.gentle-shell/agent" ]; then
             target_agent_dirs+=("$HOME/.gentle-shell/agent")
-            echo -e "Detectado agente: ${GREEN}Gentle Shell (legado/agent)${RESET} (~/.gentle-shell/agent)"
+            echo -e "Detectado agente: ${GREEN}Gentle Shell${RESET} (~/.gentle-shell/agent)"
         fi
-    fi
-    if [ -d "$HOME/.pi/agent" ]; then
-        target_agent_dirs+=("$HOME/.pi/agent")
-        echo -e "Detectado agente: ${GREEN}Pi Vanilla${RESET} (~/.pi/agent)"
-    fi
-    if [ -d "$HOME/.pi/agent-wilox" ]; then
-        target_agent_dirs+=("$HOME/.pi/agent-wilox")
-        echo -e "Detectado agente: ${GREEN}Wilox Pi${RESET} (~/.pi/agent-wilox)"
-    elif [ -d "$HOME/.pi/agent-j0k3r" ]; then
-        target_agent_dirs+=("$HOME/.pi/agent-j0k3r")
-        echo -e "Detectado agente legado: ${YELLOW}Wilox/J0k3r Pi${RESET} (~/.pi/agent-j0k3r)"
     fi
 
     # Si ninguno existe aún, preparar Gentle-Shell por defecto

@@ -110,19 +110,12 @@ if ($env:PI_CODING_AGENT_DIR -and (Test-Path $env:PI_CODING_AGENT_DIR)) {
     $agentTargets += (Join-Path $env:PI_CODING_AGENT_DIR "extensions")
 }
 
-# Inspeccionar directorios base estándar en el perfil del usuario
-$standardRoots = @(
-    (Join-Path $env:USERPROFILE ".gentle-shell"),
-    (Join-Path $env:USERPROFILE ".pi")
-)
-
-foreach ($root in $standardRoots) {
-    if (Test-Path $root) {
-        Get-ChildItem -Path $root -Directory -Filter "agent*" -ErrorAction SilentlyContinue | ForEach-Object {
-            $extDir = Join-Path $_.FullName "extensions"
-            if ($agentTargets -notcontains $extDir) {
-                $agentTargets += $extDir
-            }
+$gentleRoot = Join-Path $env:USERPROFILE ".gentle-shell"
+if (Test-Path $gentleRoot) {
+    Get-ChildItem -Path $gentleRoot -Directory -Filter "agent*" -ErrorAction SilentlyContinue | ForEach-Object {
+        $extDir = Join-Path $_.FullName "extensions"
+        if ($agentTargets -notcontains $extDir) {
+            $agentTargets += $extDir
         }
     }
 }

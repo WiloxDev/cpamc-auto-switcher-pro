@@ -909,7 +909,7 @@ const PREF_FILE_NAME = "cpamc-preferences.json";
 
 function getPreferencesPath(): string {
 	const home = process.env.HOME || process.env.USERPROFILE || homedir() || "";
-	return join(home, ".pi", "agent-wilox", PREF_FILE_NAME);
+	return join(home, ".config", "wiloxdev", PREF_FILE_NAME);
 }
 
 let activeViewMode: QuotaCardViewMode = "essential";
@@ -923,7 +923,7 @@ const MAX_TURN_HISTORY = 20;
 const MAX_EVENT_HISTORY = 40;
 
 /**
- * Carga las preferencias de QuotaCard desde disco (~/.pi/agent-wilox/cpamc-preferences.json)
+ * Carga las preferencias de QuotaCard desde disco (~/.config/wiloxdev/cpamc-preferences.json)
  * sin bloquear ni arrojar excepciones si no existe.
  */
 export function loadQuotaCardPreferences(): { viewMode: QuotaCardViewMode; activeTab: QuotaCardTabId } {

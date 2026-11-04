@@ -6,7 +6,7 @@
 [![Plataformas](https://img.shields.io/badge/Plataformas-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=flat-square)](#-instalación-rápida-60-segundos)
 [![Harnesses](https://img.shields.io/badge/Harness-Gentle--Shell%20%7C%20Wilox--Pi%20%7C%20Pi-purple?style=flat-square)](#-compatibilidad)
 
-Elimina las interrupciones por límite de tasa (**HTTP 429 Rate Limits**), monitorea tus cuotas de modelos en tiempo real sin salir del terminal y mantén tus agentes de IA codificando sin fricción ni pérdida de contexto en **Gentle-Shell**, **Wilox-Pi** y **Pi Vanilla**.
+Elimina las interrupciones por límite de tasa (**HTTP 429 Rate Limits**), monitorea tus cuotas de modelos en tiempo real sin salir del terminal y mantén tus agentes de IA codificando sin fricción ni pérdida de contexto en **Gentle-Shell**, **Gentle-Pi** y **Pi Vanilla**.
 
 ---
 
@@ -190,12 +190,12 @@ Auto Switcher Pro está concebido bajo estándares de ingeniería de mínima int
 - **100% en Memoria RAM**: El balanceo de cuentas, la detección predictiva (>80% de fatiga) y los rescates por 429 se ejecutan en RAM (`ActiveLeader`). **Tus archivos de credenciales OAuth físicos en disco (`~/.cli-proxy-api/*.json`) nunca son modificados, renombrados ni borrados.**
 - **Archivos gestionados por el instalador**:
   - `~/cliproxyapi/plugins/auto-switcher-pro-linux-amd64.so` (Plugin CGO en el servidor).
-  - `~/.pi/gentle-shell/agent/extensions/cpamc-auto-switcher` (Extensión del cliente).
+  - `~/.gentle-shell/agent/extensions/cpamc-auto-switcher` (Extensión del cliente).
   - Respaldo automático `.bak` antes de cualquier modificación en `config.yaml` o `settings.json`.
 - **Desinstalación limpia**:
   Si deseas desinstalar la extensión de tu cliente, basta con eliminar la carpeta de la extensión:
   ```bash
-  rm -rf ~/.pi/gentle-shell/agent/extensions/cpamc-auto-switcher
+  rm -rf ~/.gentle-shell/agent/extensions/cpamc-auto-switcher
   ```
 
 ---
@@ -205,8 +205,8 @@ Auto Switcher Pro está concebido bajo estándares de ingeniería de mínima int
 | Entorno | Soporte Visual | Balanceo y Pools | Sensor Anti-Sobrediseño |
 |---|:---:|:---:|:---:|
 | **Gentle-Shell** | ✅ Tarjeta 48 col en riel derecho | ✅ Nativo | ✅ Activo (`~/.gentle-shell/agent/skills`) |
-| **Wilox-Pi** | ✅ Telemetría en Footer / Status | ✅ Nativo | ✅ Activo (`~/.pi/agent-wilox/skills`) |
-| **Pi Vanilla** | ✅ Telemetría en Footer | ✅ Nativo | ✅ Activo (`~/.pi/agent/skills`) |
+| **Gentle-Pi** | ✅ Telemetría en Footer / Status | ✅ Nativo | ✅ Activo (`~/.gentle-shell/agent/skills`) |
+| **Pi Vanilla** | ✅ Telemetría en Footer | ✅ Nativo | ✅ Activo (`~/.gentle-shell/agent/skills`) |
 | **CLIProxyAPI v8.0.13+** | ✅ Consola de Administración Web | ✅ Motor CGO | — |
 
 ---

@@ -8,7 +8,7 @@ Suite oficial todo-en-uno que proporciona integración nativa completa entre **C
 
 1. **Dynamic Provider (`cpamc`)**:
    - Descubrimiento dinámico de modelos desde CLIProxyAPI (`/v1/models` y `/v0/management/auth-files`).
-   - Sincronización continua de catálogo con persistencia dual de caché (`~/.pi/agent-j0k3r/cpamc-models-cache.json` y `~/.gentle-shell/agent/cpamc-models-cache.json`).
+   - Sincronización continua de catálogo con persistencia dual de caché (`~/.gentle-shell/agent/cpamc-models-cache.json` y `~/.config/wiloxdev/cpamc-models-cache.json`).
    - Soporte nativo para prefijos estándar y especializados: `agy`, `agy2`, `agy3`, `agy_son`, `agy_opus`, `codex`, `codex2`, etc.
    - Filtrado automático de cuentas de reserva (`_1`, `_2`) para mantener el catálogo limpio.
 
@@ -28,7 +28,7 @@ Suite oficial todo-en-uno que proporciona integración nativa completa entre **C
 
 5. **Guardián Anti-Sobrediseño (`anti-overengineering`)**:
    - Skill transversal que frena el sobrediseño, dependencias superfluas y código huérfano.
-   - Sincronización automática con la carpeta `skills/` del agente activo (Gentle-Shell, Wilox-Pi, Pi Vanilla).
+   - Sincronización automática con la carpeta `skills/` del agente activo (Gentle-Shell, Gentle-Pi, Pi Vanilla).
    - Reflejo del estado de protección directamente en la tarjeta de cuotas del sidebar.
 
 ---
@@ -61,26 +61,16 @@ curl -sSL https://raw.githubusercontent.com/WiloxDev/cpamc-auto-switcher-pro/mai
 
 ## 📦 Instalación Manual / Homologación Canónica
 
-Para enlazar la extensión manualmente en cualquier sabor de Pi:
+Para enlazar la extensión canónica en Gentle-Shell:
 
-### 1. Para Gentle-Shell
+### Instalación Canónica para Gentle-Shell
 ```bash
+# Método 1: Enlace en Gentle-Shell
 mkdir -p ~/.gentle-shell/agent/extensions
-ln -sfn ~/projects/cpamc-auto-switcher/extensions/cpamc-auto-switcher ~/.gentle-shell/agent/extensions/cpamc-auto-switcher
-```
+ln -sfn ~/projects/cpamc-auto-switcher-pro/extensions/cpamc-auto-switcher ~/.gentle-shell/agent/extensions/cpamc-auto-switcher
 
-### 2. Para jok3r-pi
-```bash
-mkdir -p ~/.pi/agent-j0k3r/extensions
-# Remover enlace legado de UI si existiera
-rm -f ~/.pi/agent-j0k3r/extensions/cpamc-runtime-ui
-ln -sfn ~/projects/cpamc-auto-switcher/extensions/cpamc-auto-switcher ~/.pi/agent-j0k3r/extensions/cpamc-auto-switcher
-```
-
-### 3. Para Pi Vanilla (Earendil Standard)
-```bash
-mkdir -p ~/.pi/agent/extensions
-ln -sfn ~/projects/cpamc-auto-switcher/extensions/cpamc-auto-switcher ~/.pi/agent/extensions/cpamc-auto-switcher
+# Método 2: Instalador All-in-One oficial
+./install.sh --ext-only
 ```
 
 ---

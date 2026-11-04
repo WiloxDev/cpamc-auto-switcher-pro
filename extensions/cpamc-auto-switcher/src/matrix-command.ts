@@ -60,7 +60,7 @@ export function registerAgentMatrixCommand(pi: ExtensionAPI): void {
 					output += `  ${name} ${primary} ${fallback} ${thinking}\n`;
 				}
 
-				output += "\n\x1b[1m\x1b[32m🅱️  UNIVERSO WILOX-PI (Suite Todo-en-Uno Soberana)\x1b[0m\n";
+				output += "\n\x1b[1m\x1b[32m🅱️  SUITE SOBERANA WILOXDEV (Planned Workflow & Subagents)\x1b[0m\n";
 				for (const a of jok3rAgents) {
 					const name = (a.displayName || a.agent_id).padEnd(25);
 					const primary = `\x1b[32m${a.primary_pool}\x1b[0m`.padEnd(28);

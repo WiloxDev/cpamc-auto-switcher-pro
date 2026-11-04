@@ -314,9 +314,6 @@ async function executeAutoFix(ctx: ExtensionContext): Promise<void> {
 
 		const agentExtRoots = [
 			path.join(os.homedir(), ".gentle-shell", "agent", "extensions"),
-			path.join(os.homedir(), ".pi", "gentle-shell", "extensions"),
-			path.join(os.homedir(), ".pi", "agent", "extensions"),
-			path.join(os.homedir(), ".pi", "agent-wilox", "extensions"),
 		];
 
 		// Incluir directorio configurado en ~/.gentle-shell/config.json si existe

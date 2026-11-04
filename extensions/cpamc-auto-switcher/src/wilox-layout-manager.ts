@@ -152,7 +152,7 @@ export function readWiloxSettings(): WiloxUnifiedSettings {
 	}
 
 	// 2. Migración transparente de ~/.pi/gentle-shell/wilox-settings.json si existe
-	const legacySidebarPath = join(homedir(), ".pi", "gentle-shell", "wilox-settings.json");
+	const legacySidebarPath = join(homedir(), ".gentle-shell", "wilox-settings.json");
 	if (existsSync(legacySidebarPath)) {
 		try {
 			const data = JSON.parse(readFileSync(legacySidebarPath, "utf8"));
@@ -226,8 +226,8 @@ export function writeWiloxSettings(patch: DeepPartial<WiloxUnifiedSettings>): Wi
 
 	// Sincronizar espejos legacy para retrocompatibilidad absoluta
 	try {
-		const legacySidebarPath = join(homedir(), ".pi", "gentle-shell", "wilox-settings.json");
-		const legacySidebarDir = join(homedir(), ".pi", "gentle-shell");
+		const legacySidebarPath = join(homedir(), ".gentle-shell", "wilox-settings.json");
+		const legacySidebarDir = join(homedir(), ".gentle-shell");
 		mkdirSync(legacySidebarDir, { recursive: true });
 		const tmpSidebar = `${legacySidebarPath}.${randomUUID()}.tmp`;
 		writeFileSync(tmpSidebar, JSON.stringify({
@@ -871,10 +871,9 @@ function registerChatScannerModule(): void {
  */
 export function autoDiscoverCommunityExtensions(): void {
 	const searchRoots = [
-		join(homedir(), ".pi", "gentle-shell", "extensions"),
+		join(homedir(), ".gentle-shell", "extensions"),
 		join(homedir(), ".gentle-shell", "agent", "extensions"),
-		join(homedir(), ".pi", "agent", "extensions"),
-	];
+			];
 
 	const discoveredIds = new Set<string>();
 
@@ -1094,8 +1093,8 @@ export function syncCustomizeCategory(): boolean {
 				}),
 				action: () => {
 					try {
-						const m = require("/home/wilox/.pi/gentle-shell/extensions/cpamc-auto-switcher/src/wilox-layout-manager.js");
-						m.applyWiloxDevOptimalDefaults();
+                        applyWiloxDevOptimalDefaults();
+
 						ctx.ui.notify?.("⚡ WiloxDev Suite: Configuración recomendada aplicada con éxito.", "info");
 					} catch {}
 					renderHost?.invalidateSidebar?.();
@@ -1125,8 +1124,8 @@ export function syncCustomizeCategory(): boolean {
 						const nextState = isExpanded() ? null : mod.id;
 						commBus[COMM_EXPANDED_SLOT] = nextState;
 						try {
-							const m = require("/home/wilox/.pi/gentle-shell/extensions/cpamc-auto-switcher/src/wilox-layout-manager.js");
-							m.setLastExpandedModule(nextState);
+                        setLastExpandedModule(nextState);
+
 						} catch {}
 						renderHost?.invalidateSidebar?.();
 						renderHost?.requestRender();

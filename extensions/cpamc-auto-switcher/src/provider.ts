@@ -328,20 +328,7 @@ export function resolveCpamcSettings(): CpamcSettings {
         candidates.add(join(process.env.PI_CODING_AGENT_DIR, "settings.json"));
     }
     candidates.add(join(home, ".gentle-shell", "agent", "settings.json"));
-    candidates.add(join(home, ".pi", "agent", "settings.json"));
-    candidates.add(join(home, ".pi", "agent-wilox", "settings.json"));
-
-    const piDir = join(home, ".pi");
-    if (existsSync(piDir)) {
-        try {
-            const entries = readdirSync(piDir, { withFileTypes: true });
-            for (const entry of entries) {
-                if (entry.isDirectory() && entry.name.startsWith("agent")) {
-                    candidates.add(join(piDir, entry.name, "settings.json"));
-                }
-            }
-        } catch {}
-    }
+    candidates.add(join(home, ".config", "wiloxdev", "settings.json"));
 
     for (const settingsPath of candidates) {
         try {

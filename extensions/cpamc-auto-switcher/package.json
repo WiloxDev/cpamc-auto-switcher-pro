@@ -1,30 +1,60 @@
-{
-  "name": "cpamc-auto-switcher",
-  "version": "1.0.0",
-  "description": "Extensión unificada de CPAMC para Gentle-Shell y Pi: Dynamic Provider, QuotaCard Sidebar, Picker y Auto-Failover",
-  "type": "module",
-  "main": "index.ts",
-  "pi": {
-    "extensions": [
-      "index.ts"
-    ]
-  },
-  "wiloxCommunity": {
-    "moduleId": "cpamc-sentinel",
-    "title": "CPAMC Sentinel · Cuota, Telemetría & Cuidado del Chat",
-    "order": 10
-  },
-  "scripts": {
-    "test": "node --experimental-strip-types --test src/*.test.ts",
-    "typecheck": "tsc --noEmit"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
-  },
-  "devDependencies": {
-    "@types/node": "^26.6.5",
-    "typescript": "^7.0.2"
-  }
+﻿{
+    "main":  "index.ts",
+    "bugs":  {
+                 "url":  "https://github.com/WiloxDev/cpamc-auto-switcher-pro/issues"
+             },
+    "scripts":  {
+                    "test":  "node --experimental-strip-types --test src/*.test.ts",
+                    "typecheck":  "tsc --noEmit"
+                },
+    "peerDependencies":  {
+                             "@earendil-works/pi-coding-agent":  "*",
+                             "@earendil-works/pi-ai":  "*",
+                             "@earendil-works/pi-tui":  "*"
+                         },
+    "homepage":  "https://github.com/WiloxDev/cpamc-auto-switcher-pro#readme",
+    "type":  "module",
+    "devDependencies":  {
+                            "@types/node":  "^26.6.5",
+                            "typescript":  "^5.9.3"
+                        },
+    "keywords":  [
+                     "gentle-shell-package",
+                     "gentle-shell-extension",
+                     "gentle-hub-project",
+                     "pi-extension",
+                     "gentle-shell",
+                     "cpamc",
+                     "quota-card",
+                     "failover"
+                 ],
+    "repository":  {
+                       "url":  "https://github.com/WiloxDev/cpamc-auto-switcher-pro.git",
+                       "directory":  "extensions/cpamc-auto-switcher",
+                       "type":  "git"
+                   },
+    "description":  "Extension unificada de CPAMC para Gentle-Shell y Pi: Dynamic Provider, QuotaCard Sidebar, Picker y Auto-Failover",
+    "license":  "MIT",
+    "files":  [
+                  "index.ts",
+                  "src",
+                  "README.md",
+                  "package.json"
+              ],
+    "wiloxCommunity":  {
+                           "id":  "cpamc-sentinel",
+                           "order":  10,
+                           "category":  "Community",
+                           "author":  "WiloxDev",
+                           "title":  "CPAMC Sentinel - Cuota, Telemetria \u0026 Cuidado del Chat",
+                           "moduleId":  "cpamc-sentinel"
+                       },
+    "version":  "1.0.0",
+    "author":  "WiloxDev (wilsonlavio9@gmail.com)",
+    "pi":  {
+               "extensions":  [
+                                  "index.ts"
+                              ]
+           },
+    "name":  "cpamc-auto-switcher"
 }
