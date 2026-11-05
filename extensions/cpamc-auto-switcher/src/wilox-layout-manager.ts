@@ -904,36 +904,25 @@ export function autoDiscoverCommunityExtensions(): void {
 	}
 }
 
-const LAYOUT_TARGET_FILES = [
-	"/home/wilox/.local/share/mise/installs/node/24.21.0/lib/node_modules/gentle-pi/lib/shell-sidebar-layout.ts",
-	"/home/wilox/.local/share/gentle-shell/install/runtime/main-sdk/lib/shell-sidebar-layout.ts",
-	"/home/wilox/.local/share/gentle-shell/install/prefix/lib/node_modules/gentle-pi/lib/shell-sidebar-layout.ts",
-	"/home/wilox/.local/share/gentle-shell/install/runtime/main-source/lib/shell-sidebar-layout.ts",
-	"/home/wilox/.local/share/gentle-shell/install/runtime/project/node_modules/gentle-pi/lib/shell-sidebar-layout.ts",
-	"/home/wilox/projects/investigaciones/gentle-shell-official/lib/shell-sidebar-layout.ts",
-];
+function getCandidateFiles(subpath: string): string[] {
+	const userHome = homedir();
+	return [
+		join(userHome, ".npm-global", "lib", "node_modules", "gentle-pi", subpath),
+		join(userHome, ".local", "share", "gentle-shell", "install", "runtime", "main-sdk", subpath),
+		join(userHome, ".local", "share", "gentle-shell", "install", "prefix", "lib", "node_modules", "gentle-pi", subpath),
+		join(userHome, ".local", "share", "gentle-shell", "install", "runtime", "main-source", subpath),
+		join(userHome, ".local", "share", "gentle-shell", "install", "runtime", "project", "node_modules", "gentle-pi", subpath),
+		join(userHome, "projects", "investigaciones", "gentle-shell-official", subpath),
+	].filter((p) => existsSync(p));
+}
 
-const GENTLE_SHELL_TARGET_FILES = [
-	"/home/wilox/.local/share/mise/installs/node/24.21.0/lib/node_modules/gentle-pi/extensions/gentle-shell.ts",
-	"/home/wilox/.local/share/gentle-shell/install/runtime/main-sdk/extensions/gentle-shell.ts",
-	"/home/wilox/.local/share/gentle-shell/install/prefix/lib/node_modules/gentle-pi/extensions/gentle-shell.ts",
-	"/home/wilox/.local/share/gentle-shell/install/runtime/main-source/extensions/gentle-shell.ts",
-	"/home/wilox/.local/share/gentle-shell/install/runtime/project/node_modules/gentle-pi/extensions/gentle-shell.ts",
-	"/home/wilox/projects/investigaciones/gentle-shell-official/extensions/gentle-shell.ts",
-];
-
-const CUSTOMIZE_VIEW_TARGET_FILES = [
-	"/home/wilox/.local/share/mise/installs/node/24.21.0/lib/node_modules/gentle-pi/lib/visual-customize-view.ts",
-	"/home/wilox/.local/share/gentle-shell/install/runtime/main-sdk/lib/visual-customize-view.ts",
-	"/home/wilox/.local/share/gentle-shell/install/prefix/lib/node_modules/gentle-pi/lib/visual-customize-view.ts",
-	"/home/wilox/.local/share/gentle-shell/install/runtime/main-source/lib/visual-customize-view.ts",
-	"/home/wilox/.local/share/gentle-shell/install/runtime/project/node_modules/gentle-pi/lib/visual-customize-view.ts",
-	"/home/wilox/projects/investigaciones/gentle-shell-official/lib/visual-customize-view.ts",
-];
+const LAYOUT_TARGET_FILES = getCandidateFiles("lib/shell-sidebar-layout.ts");
+const GENTLE_SHELL_TARGET_FILES = getCandidateFiles("extensions/gentle-shell.ts");
+const CUSTOMIZE_VIEW_TARGET_FILES = getCandidateFiles("lib/visual-customize-view.ts");
 
 function clearJitiCache(): void {
 	const jitiDirs = [
-		"/home/wilox/.local/share/gentle-shell/install/tmp/jiti",
+		join(homedir(), ".local", "share", "gentle-shell", "install", "tmp", "jiti"),
 		join(tmpdir(), "jiti"),
 	];
 	for (const dir of jitiDirs) {

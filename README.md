@@ -20,6 +20,8 @@ Elimina las interrupciones por límite de tasa (**HTTP 429 Rate Limits**), monit
 
 ## ⚡ Instalación Rápida (60 Segundos)
 
+> 🤖 **Para Instalación Asistida por AI (Claude, Pi, Cursor):** Consulta estrictamente [AI_INSTALL.md](AI_INSTALL.md) para garantizar el cumplimiento de la Invariante Zero-Chat y el correcto anclaje de la QuotaCard en el Sidebar Dock.
+
 Elige tu caso según dónde esté tu servidor CPAMC:
 
 ### Caso 1: Todo en esta máquina (Recomendado para empezar)
