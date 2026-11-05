@@ -345,6 +345,7 @@ function nextReserveNumber(nodes, base, extraAssigned) {
 export default function GroupManager({
   nodes = [],
   edges = [],
+  registeredPools: propRegisteredPools,
   onReloadRequested,
   onSwitchTab,
 }) {
@@ -366,7 +367,11 @@ export default function GroupManager({
   const pendingCreationRef = useRef(false);
   // [registeredPools] Pools registrados en el plugin PoolRegistry (fuente única de verdad).
   // Se resincroniza en cada reload de nodos (tras crear/disolver un pool).
-  const [registeredPools, setRegisteredPools] = useState([]);
+  const [registeredPools, setRegisteredPools] = useState(
+    Array.isArray(propRegisteredPools) && propRegisteredPools.length > 0
+      ? sortPoolsByNumber(propRegisteredPools)
+      : []
+  );
   const [catalogModels, setCatalogModels] = useState([]);
   const [cardAdoptSelections, setCardAdoptSelections] = useState({});
   const [selectedAuthModels, setSelectedAuthModels] = useState([]);
@@ -439,18 +444,25 @@ export default function GroupManager({
 
   useEffect(() => {
     let cancelled = false;
+    if (Array.isArray(propRegisteredPools) && propRegisteredPools.length > 0) {
+      setRegisteredPools(sortPoolsByNumber(propRegisteredPools));
+    }
     listPools()
       .then((res) => {
-        if (!cancelled) setRegisteredPools(sortPoolsByNumber(Array.isArray(res?.pools) ? res.pools : []));
+        if (!cancelled && Array.isArray(res?.pools) && res.pools.length > 0) {
+          setRegisteredPools(sortPoolsByNumber(res.pools));
+        }
       })
       .catch(() => {
-        // Registro no disponible: degradar a pools derivados de prefijos en disco
-        if (!cancelled) setRegisteredPools([]);
+        // Registro no disponible: no sobreescribir si ya disponemos de propRegisteredPools
+        if (!cancelled && (!propRegisteredPools || propRegisteredPools.length === 0)) {
+          setRegisteredPools([]);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [nodes]);
+  }, [nodes, propRegisteredPools]);
 
   // Archivos miembros de pools registrados (cualquier familia) — para freeNodes
   const registryMemberFileNames = useMemo(() => {
@@ -947,9 +959,34 @@ function sortModelsByFamilyAndVersion(models, familyRole, isCodex, isGemini) {
         })
         .filter(Boolean);
 
-      // Si el pool no tiene ninguna cuenta física viva en nodes (fueron borradas en CPAMC),
-      // descartar para evitar pools huérfanos/zombies y liberar el prefijo inmediatamente.
-      if (!root && reserves.length === 0) {
+      // Si tenemos nodos cargados y ninguna cuenta física del pool existe ya en CPAMC,
+      // descartar para evitar pools huérfanos/zombies. Si los nodos aún están cargando,
+      // conservar el pool registrado para evitar parpadeos en 0.
+      const resolvedRoot = root || (nodes.length === 0 && pool.leader_auth ? {
+        id: pool.leader_auth,
+        name: pool.leader_auth,
+        data: {
+          fileName: pool.leader_auth,
+          email: pool.leader_email || pool.leader_auth,
+          prefix: basePrefix,
+        },
+      } : null);
+
+      const resolvedReserves = reserves.length > 0
+        ? reserves
+        : (nodes.length === 0 && Array.isArray(pool.reserves)
+            ? pool.reserves.map((auth, idx) => ({
+                node: {
+                  id: auth,
+                  name: auth,
+                  data: { fileName: auth, email: auth, prefix: `${basePrefix}_${idx + 1}` },
+                },
+                prefix: `${basePrefix}_${idx + 1}`,
+                reserveIndex: idx + 1,
+              }))
+            : []);
+
+      if (nodes.length > 0 && !resolvedRoot && resolvedReserves.length === 0) {
         return;
       }
 
@@ -997,8 +1034,8 @@ function sortModelsByFamilyAndVersion(models, familyRole, isCodex, isGemini) {
         displayName,
         enabled,
         basePrefix,
-        root,
-        reserves,
+        root: resolvedRoot,
+        reserves: resolvedReserves,
         activeLeaderAuth,
         targetModel,
         memberModels,

@@ -43,30 +43,37 @@ describe('Management API Client - Auth & Security Invariants', () => {
   const TEST_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
   const TEST_KEY = 'secret-mgmt-key-998877';
 
-  it('correctly round-trips obfuscation and deobfuscation with CPAMC cipher', () => {
+  it('correctly round-trips obfuscation and deobfuscation with CPAMC cipher (v2 and v1)', () => {
     const rawPayload = JSON.stringify({ state: { managementKey: TEST_KEY } });
-    const obfuscated = obfuscateCPAMC(rawPayload, TEST_HOST, TEST_UA);
+    
+    // v2 (CPAMC v8 default)
+    const obfuscatedV2 = obfuscateCPAMC(rawPayload, TEST_HOST, TEST_UA, 'v2');
+    expect(obfuscatedV2.startsWith('enc::v2::')).toBe(true);
+    const deobfuscatedV2 = deobfuscateCPAMC(obfuscatedV2, TEST_HOST, TEST_UA);
+    expect(deobfuscatedV2).toBe(rawPayload);
+    expect(JSON.parse(deobfuscatedV2).state.managementKey).toBe(TEST_KEY);
 
-    expect(obfuscated.startsWith('enc::v1::')).toBe(true);
-
-    const deobfuscated = deobfuscateCPAMC(obfuscated, TEST_HOST, TEST_UA);
-    expect(deobfuscated).toBe(rawPayload);
-    expect(JSON.parse(deobfuscated).state.managementKey).toBe(TEST_KEY);
+    // v1 (legacy)
+    const obfuscatedV1 = obfuscateCPAMC(rawPayload, TEST_HOST, TEST_UA, 'v1');
+    expect(obfuscatedV1.startsWith('enc::v1::')).toBe(true);
+    const deobfuscatedV1 = deobfuscateCPAMC(obfuscatedV1, TEST_HOST, TEST_UA);
+    expect(deobfuscatedV1).toBe(rawPayload);
+    expect(JSON.parse(deobfuscatedV1).state.managementKey).toBe(TEST_KEY);
   });
 
-  it('returns raw text unchanged if not starting with enc::v1::', () => {
+  it('returns raw text unchanged if not starting with enc::v1:: or enc::v2::', () => {
     const plain = JSON.stringify({ state: { managementKey: 'plain_key' } });
     expect(deobfuscateCPAMC(plain, TEST_HOST, TEST_UA)).toBe(plain);
     expect(deobfuscateCPAMC('', TEST_HOST, TEST_UA)).toBe('');
     expect(deobfuscateCPAMC(null, TEST_HOST, TEST_UA)).toBe('');
   });
 
-  it('extracts management key from parent storage in iframe mode', () => {
+  it('extracts management key from parent storage in iframe mode (v2 and v1)', () => {
     const rawPayload = JSON.stringify({ state: { managementKey: TEST_KEY } });
-    const obfuscated = obfuscateCPAMC(rawPayload, TEST_HOST, TEST_UA);
+    const obfuscatedV2 = obfuscateCPAMC(rawPayload, TEST_HOST, TEST_UA, 'v2');
 
     const mockParentStorage = {
-      getItem: vi.fn((key) => (key === 'cli-proxy-auth' ? obfuscated : null)),
+      getItem: vi.fn((key) => (key === 'cli-proxy-auth' ? obfuscatedV2 : null)),
     };
 
     const key = getManagementKey({

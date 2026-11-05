@@ -15,7 +15,9 @@
 import { computeGraphLayout } from '../graph/layout';
 
 const SECRET_SALT = 'cli-proxy-api-webui::secure-storage';
-const ENC_PREFIX = 'enc::v1::';
+const ENC_V1_PREFIX = 'enc::v1::';
+const ENC_V2_PREFIX = 'enc::v2::';
+const ENC_PREFIX = 'enc::v2::';
 const EMAIL_REGEX = /[a-zA-Z0-9._%+]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
 const SUFFIX_STRIP = /(?:-plus)?\.json$/i;
 
@@ -116,7 +118,8 @@ export function sanitizeFileName(name) {
 }
 
 /**
- * Deobfuscates CPAMC storage payload using host and userAgent XOR cipher.
+ * Deobfuscates CPAMC storage payload using host and optional userAgent XOR cipher.
+ * Supports both modern CPAMC v8 (enc::v2:: without userAgent) and legacy CPAMC (enc::v1:: with userAgent).
  *
  * @param {string} raw - The stored string value
  * @param {string} [host] - Hostname override for testing
@@ -125,7 +128,9 @@ export function sanitizeFileName(name) {
  */
 export function deobfuscateCPAMC(raw, host, ua) {
   if (!raw || typeof raw !== 'string') return '';
-  if (!raw.startsWith(ENC_PREFIX)) return raw;
+  const isV1 = raw.startsWith(ENC_V1_PREFIX);
+  const isV2 = raw.startsWith(ENC_V2_PREFIX);
+  if (!isV1 && !isV2) return raw;
 
   try {
     const effectiveHost =
@@ -137,11 +142,13 @@ export function deobfuscateCPAMC(raw, host, ua) {
       (typeof navigator !== 'undefined' && navigator.userAgent) ||
       '';
 
-    const keyStr = `${SECRET_SALT}|${effectiveHost}|${effectiveUa}`;
+    const keyStr = isV1
+      ? `${SECRET_SALT}|${effectiveHost}|${effectiveUa}`
+      : `${SECRET_SALT}|${effectiveHost}`;
     const encoder = new TextEncoder();
     const keyBytes = encoder.encode(keyStr);
 
-    const b64 = raw.slice(ENC_PREFIX.length);
+    const b64 = raw.slice(9);
     const binary = atob(b64);
     const dataBytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
@@ -162,14 +169,15 @@ export function deobfuscateCPAMC(raw, host, ua) {
 
 /**
  * Obfuscates plain text matching CPAMC XOR cipher.
- * Useful for tests and symmetrical verification.
+ * Supports version 'v2' (default in CPAMC v8) and legacy 'v1'.
  *
  * @param {string} plainText
  * @param {string} [host]
  * @param {string} [ua]
- * @returns {string} Obfuscated payload with 'enc::v1::' prefix
+ * @param {string} [version='v2'] - 'v2' (host-only) or 'v1' (host+ua)
+ * @returns {string} Obfuscated payload with 'enc::v2::' or 'enc::v1::' prefix
  */
-export function obfuscateCPAMC(plainText, host, ua) {
+export function obfuscateCPAMC(plainText, host, ua, version = 'v2') {
   if (typeof plainText !== 'string') return '';
   const effectiveHost =
     host ||
@@ -180,7 +188,10 @@ export function obfuscateCPAMC(plainText, host, ua) {
     (typeof navigator !== 'undefined' && navigator.userAgent) ||
     '';
 
-  const keyStr = `${SECRET_SALT}|${effectiveHost}|${effectiveUa}`;
+  const isV1 = version === 'v1';
+  const keyStr = isV1
+    ? `${SECRET_SALT}|${effectiveHost}|${effectiveUa}`
+    : `${SECRET_SALT}|${effectiveHost}`;
   const encoder = new TextEncoder();
   const keyBytes = encoder.encode(keyStr);
   const dataBytes = encoder.encode(plainText);
@@ -195,7 +206,8 @@ export function obfuscateCPAMC(plainText, host, ua) {
     binary += String.fromCharCode(encrypted[i]);
   }
 
-  return ENC_PREFIX + btoa(binary);
+  const prefix = isV1 ? ENC_V1_PREFIX : ENC_V2_PREFIX;
+  return prefix + btoa(binary);
 }
 
 /**
@@ -227,12 +239,30 @@ export function getManagementKey(options = {}) {
         : null);
 
     if (parentStorage) {
+      const explicitParentKey =
+        parentStorage.getItem('management_key') || parentStorage.getItem('managementKey');
+      if (explicitParentKey && String(explicitParentKey).trim()) {
+        const found = String(explicitParentKey).trim();
+        try {
+          if (typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.setItem('management_key', found);
+          }
+        } catch {}
+        return found;
+      }
+
       const raw = parentStorage.getItem('cli-proxy-auth');
       if (raw) {
         const decrypted = deobfuscateCPAMC(raw, effectiveHost, effectiveUa);
         const parsed = JSON.parse(decrypted);
         if (parsed?.state?.managementKey) {
-          return String(parsed.state.managementKey).trim();
+          const found = String(parsed.state.managementKey).trim();
+          try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+              window.localStorage.setItem('management_key', found);
+            }
+          } catch {}
+          return found;
         }
       }
     }
@@ -252,7 +282,11 @@ export function getManagementKey(options = {}) {
         const decrypted = deobfuscateCPAMC(raw, effectiveHost, effectiveUa);
         const parsed = JSON.parse(decrypted);
         if (parsed?.state?.managementKey) {
-          return String(parsed.state.managementKey).trim();
+          const found = String(parsed.state.managementKey).trim();
+          try {
+            localStorage.setItem('management_key', found);
+          } catch {}
+          return found;
         }
       }
     }

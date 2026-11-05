@@ -166,6 +166,7 @@ export default function App() {
   const [status, setStatus] = useState('loading'); // 'loading' | 'unauthenticated' | 'ready' | 'error' | 'demo'
   const [errorMessage, setErrorMessage] = useState('');
   const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
+  const [registeredPools, setRegisteredPools] = useState([]);
   const [datasetVersion, setDatasetVersion] = useState(0);
   const [actionFeedback, setActionFeedback] = useState('');
   const [checkingForce, setCheckingForce] = useState(false);
@@ -256,17 +257,22 @@ export default function App() {
       return;
     }
 
+    try {
+      localStorage.setItem('management_key', key);
+    } catch {}
+
     setStatus('loading');
     setErrorMessage('');
 
     try {
       const [authFiles, poolsRes] = await Promise.all([
         loadAuthFilesWithPrefixes({ key }),
-        listPools().catch(() => ({ pools: [] })),
+        listPools({ key }).catch(() => ({ pools: [] })),
       ]);
-      const registeredPools = sortPoolsByNumber(Array.isArray(poolsRes?.pools) ? poolsRes.pools : []);
-      const { nodes, edges } = buildGraphFromAuthFiles(authFiles, { registeredPools });
+      const loadedPools = sortPoolsByNumber(Array.isArray(poolsRes?.pools) ? poolsRes.pools : []);
+      const { nodes, edges } = buildGraphFromAuthFiles(authFiles, { registeredPools: loadedPools });
       setGraphData({ nodes, edges });
+      setRegisteredPools(loadedPools);
       setDatasetVersion((v) => v + 1);
       setStatus('ready');
     } catch (err) {
@@ -882,111 +888,26 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="app-main">
-        {activeTab === 'home' && (
-          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
-            <HomeCenter
-              onNavigateTab={setActiveTab}
-              onOpenLicenseModal={() => setIsLicenseOpen(true)}
-              onOpenNoticeModal={() => setIsNoticeOpen(true)}
-            />
-          </div>
-        )}
-
-        {activeTab === 'create-prefixes' && (
-          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
-            <PrefixManager nodes={graphData.nodes} onReloadRequested={loadProfiles} />
-          </div>
-        )}
-
-        {activeTab === 'create-groups' && (
-          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
-            <GroupManager
-              nodes={graphData.nodes}
-              edges={graphData.edges}
-              onReloadRequested={loadProfiles}
-              onSwitchTab={setActiveTab}
-            />
-          </div>
-        )}
-
-        {activeTab === 'switcher' && (
-          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
-            <ControlSwitcher nodes={graphData.nodes} onReloadRequested={loadProfiles} onNavigateTab={setActiveTab} />
-          </div>
-        )}
-
-        {activeTab === 'tokens' && (
-          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
-            <PulseTokens onNavigateTab={setActiveTab} />
-          </div>
-        )}
-
-        {activeTab === 'auto-auth-files' && (
-          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
-            <AutoAuthFiles nodes={graphData.nodes} onReloadRequested={loadProfiles} />
-          </div>
-        )}
-
-        {activeTab === 'maintenance' && (
-          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
-            <Maintenance onReloadRequested={loadProfiles} />
-          </div>
-        )}
-
-        {activeTab === 'quick-guide' && (
-          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
-            <QuickGuideModal isOpen={true} onClose={() => setActiveTab('create-groups')} embedded={true} />
-          </div>
-        )}
-
-        {activeTab === 'audit-log' && (
-          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
-            <AuditLog />
-          </div>
-        )}
-
-        {activeTab === 'agent-matrix' && (
-          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
-            <AgentMatrix />
-          </div>
-        )}
-
-        {activeTab === 'profiles' && (
-          <>
-            {status === 'loading' && (
-              <div className="state-container" data-testid="status-loading">
-                <div style={{ textAlign: 'center' }}>
-                  <div className="loading-spinner" />
-                  <p style={{ marginTop: 12, color: 'var(--text-secondary)' }}>
-                    Loading profiles from Management API...
-                  </p>
-                </div>
-              </div>
-            )}
-
         {status === 'unauthenticated' && (
           <div className="state-container" data-testid="status-unauthenticated">
             <div className="auth-warning-box">
               <div className="auth-warning-head">
                 <span className="auth-warning-icon">🔐</span>
                 <div>
-                  <h3 className="auth-warning-title">Authentication Required</h3>
+                  <h3 className="auth-warning-title">Conexión con CPAMC requerida</h3>
                 </div>
               </div>
               <p className="auth-warning-desc">
-                The visual profile plugin could not retrieve the management key
-                (<code>managementKey</code>) from browser storage. In <strong>CPAMC</strong>,
-                the key is only accessible inside iframe plugins when logged in with{' '}
-                <strong>"Remember password"</strong> enabled.
+                El plugin no pudo obtener automáticamente la clave de gestión
+                (<code>managementKey</code>) del almacenamiento del navegador. En <strong>CPAMC</strong>,
+                la clave se transfiere al plugin al iniciar sesión con la opción{' '}
+                <strong>"Remember password" / "Recordar contraseña"</strong> activada.
               </p>
               <div className="auth-warning-steps">
-                <strong>How to resolve:</strong>
+                <strong>Opciones para conectar:</strong>
                 <ol>
-                  <li>Log in to the main CPAMC console.</li>
-                  <li>
-                    Ensure the <strong>"Remember password"</strong> checkbox is checked.
-                  </li>
-                  <li>Reload this panel or click "Retry Authentication" below.</li>
+                  <li>Inicia sesión en la consola de CPAMC marcando <strong>"Recordar contraseña"</strong> y recarga este panel.</li>
+                  <li>O conecta al instante pegando tu <strong>Management Key</strong> abajo:</li>
                 </ol>
               </div>
 
@@ -1011,7 +932,7 @@ export default function App() {
                     gap: '6px',
                   }}
                 >
-                  <span>⚡</span> O conecta directamente pegando tu Management Key:
+                  <span>⚡</span> Conectar con Management Key:
                 </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <input
@@ -1072,6 +993,7 @@ export default function App() {
                   </div>
                 )}
               </div>
+
               <div className="auth-warning-actions">
                 <button
                   type="button"
@@ -1079,7 +1001,7 @@ export default function App() {
                   onClick={handleUseDemo}
                   data-testid="btn-load-demo"
                 >
-                  View Offline Demo
+                  Ver Demo Offline
                 </button>
                 <button
                   type="button"
@@ -1087,55 +1009,142 @@ export default function App() {
                   onClick={loadProfiles}
                   data-testid="btn-retry-auth"
                 >
-                  Retry Authentication
+                  Reintentar Conexión
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {status === 'error' && (
-          <div className="state-container" data-testid="status-error">
-            <div className="error-card">
-              <h3 style={{ color: '#f85149', marginBottom: 10 }}>Failed to Load Profiles</h3>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
-                {errorMessage}
+        {status === 'loading' && graphData.nodes.length === 0 && (
+          <div className="state-container" data-testid="status-loading">
+            <div style={{ textAlign: 'center' }}>
+              <div className="loading-spinner" />
+              <p style={{ marginTop: 12, color: 'var(--text-secondary)' }}>
+                Cargando perfiles y pools desde CPAMC Management API...
               </p>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  onClick={handleUseDemo}
-                  data-testid="btn-load-demo-error"
-                >
-                  View Offline Demo
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={loadProfiles}
-                  data-testid="btn-retry-error"
-                >
-                  Retry
-                </button>
-              </div>
             </div>
           </div>
         )}
 
-        {status === 'ready' && (
-          <ProfileGraph
-            ref={graphRef}
-            key={`live-graph-${datasetVersion}`}
-            initialNodes={graphData.nodes}
-            initialEdges={graphData.edges}
-            allowSynthetic={false}
-          />
+        {status !== 'unauthenticated' && !(status === 'loading' && graphData.nodes.length === 0) && (
+          <>
+        {activeTab === 'home' && (
+          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+            <HomeCenter
+              onNavigateTab={setActiveTab}
+              onOpenLicenseModal={() => setIsLicenseOpen(true)}
+              onOpenNoticeModal={() => setIsNoticeOpen(true)}
+            />
+          </div>
         )}
+
+        {activeTab === 'create-prefixes' && (
+          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+            <PrefixManager nodes={graphData.nodes} onReloadRequested={loadProfiles} />
+          </div>
+        )}
+
+        {activeTab === 'create-groups' && (
+          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+            <GroupManager
+              nodes={graphData.nodes}
+              edges={graphData.edges}
+              registeredPools={registeredPools}
+              onReloadRequested={loadProfiles}
+              onSwitchTab={setActiveTab}
+            />
+          </div>
+        )}
+
+        {activeTab === 'switcher' && (
+          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+            <ControlSwitcher nodes={graphData.nodes} onReloadRequested={loadProfiles} onNavigateTab={setActiveTab} />
+          </div>
+        )}
+
+        {activeTab === 'tokens' && (
+          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+            <PulseTokens onNavigateTab={setActiveTab} />
+          </div>
+        )}
+
+        {activeTab === 'auto-auth-files' && (
+          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+            <AutoAuthFiles nodes={graphData.nodes} onReloadRequested={loadProfiles} />
+          </div>
+        )}
+
+        {activeTab === 'maintenance' && (
+          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+            <Maintenance onReloadRequested={loadProfiles} />
+          </div>
+        )}
+
+        {activeTab === 'quick-guide' && (
+          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+            <QuickGuideModal isOpen={true} onClose={() => setActiveTab('create-groups')} embedded={true} />
+          </div>
+        )}
+
+        {activeTab === 'audit-log' && (
+          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+            <AuditLog />
+          </div>
+        )}
+
+        {activeTab === 'agent-matrix' && (
+          <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+            <AgentMatrix />
+          </div>
+        )}
+
+        {activeTab === 'profiles' && (
+          <>
+            {status === 'error' && (
+              <div className="state-container" data-testid="status-error">
+                <div className="error-card">
+                  <h3 style={{ color: '#f85149', marginBottom: 10 }}>Error al cargar perfiles</h3>
+                  <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
+                    {errorMessage}
+                  </p>
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      onClick={handleUseDemo}
+                      data-testid="btn-load-demo-error"
+                    >
+                      Ver Demo Offline
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={loadProfiles}
+                      data-testid="btn-retry-error"
+                    >
+                      Reintentar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {status === 'ready' && (
+              <ProfileGraph
+                ref={graphRef}
+                key={`live-graph-${datasetVersion}`}
+                initialNodes={graphData.nodes}
+                initialEdges={graphData.edges}
+                allowSynthetic={false}
+              />
+            )}
 
             {status === 'demo' && (
               <ProfileGraph ref={graphRef} key="demo-graph" allowSynthetic={true} />
             )}
+          </>
+        )}
           </>
         )}
 
