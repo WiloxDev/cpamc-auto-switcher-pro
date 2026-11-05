@@ -3,14 +3,18 @@
   <h1>Auto Switcher Pro & CPAMC Quota Card</h1>
   <p><b>Diseñado para trabajo intenso: balanceo automático de cuentas, protección anti-bucles de chat y telemetría de cuotas (Req. CPAMC)</b></p>
 
+[![Gentle Hub](https://img.shields.io/badge/Gentle%20Hub-Extension-F095C8?style=flat-square)](https://gentlemanprogramming.com/gentle-hub/)
+[![Discord](https://img.shields.io/badge/Discord-Apoyo-5865F2?style=flat-square&logo=discord&logoColor=white)](https://bit.ly/48zTJUo)
 [![Release](https://img.shields.io/badge/Release-v2.5.0-blue?style=flat-square)](https://github.com/WiloxDev/cpamc-auto-switcher-pro/releases)
 [![CI Tests](https://github.com/WiloxDev/cpamc-auto-switcher-pro/actions/workflows/ci.yml/badge.svg)](https://github.com/WiloxDev/cpamc-auto-switcher-pro/actions/workflows/ci.yml)
 [![Plataformas](https://img.shields.io/badge/Plataformas-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=flat-square)](#-instalación-rápida-60-segundos)
-[![Harnesses](https://img.shields.io/badge/Harness-Gentle--Shell%20%7C%20Wilox--Pi%20%7C%20Pi-purple?style=flat-square)](#-compatibilidad)
+[![Harnesses](https://img.shields.io/badge/Harness-Gentle--Shell%20%7C%20Pi-purple?style=flat-square)](#-compatibilidad)
 
 </div>
 
-Elimina las interrupciones por límite de tasa (**HTTP 429 Rate Limits**), monitorea tus cuotas de modelos en tiempo real sin salir del terminal y mantén tus agentes de IA codificando sin fricción ni pérdida de contexto en **Gentle-Shell**, **Gentle-Pi** y **Pi Vanilla**.
+> 💬 **Comunidad y Soporte Oficial:** `wilox2` · [Servidor de Discord](https://bit.ly/48zTJUo)
+
+Elimina las interrupciones por límite de tasa (**HTTP 429 Rate Limits**), monitorea tus cuotas de modelos en tiempo real sin salir del terminal y mantén tus agentes de IA codificando sin fricción ni pérdida de contexto en **Gentle-Shell** y **Pi**.
 
 ---
 
