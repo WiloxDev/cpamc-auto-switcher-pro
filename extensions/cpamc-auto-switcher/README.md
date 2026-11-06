@@ -1,4 +1,4 @@
-# ⚡ CPAMC Auto-Switcher Unified Extension (Pi & Gentle-Shell)
+﻿# ⚡ CPAMC Auto-Switcher Unified Extension (Pi & Gentle-Shell)
 
 Suite oficial todo-en-uno que proporciona integración nativa completa entre **CPAMC / Auto Switcher Pro** y el agente de codificación **Pi** (`jok3r-pi`, `gentle-shell`, `gentle-pi` o Pi Vanilla).
 
@@ -98,3 +98,4 @@ extensions/cpamc-auto-switcher/
 - **ADR-001 (Unificación de Suite)**: Se deprecó `cpamc-runtime-ui` y `pi extensions/cpamc-auto-switcher` en favor de `extensions/cpamc-auto-switcher/` para eliminar duplicidad, fragmentación de enlaces y divergencia de estado.
 - **ADR-002 (Contrato de TUI Select)**: Se corrigió la llamada a `ctx.ui.select` para pasar `string[]` en lugar de objetos `{ label, value }`, eliminando el renderizado defectuoso de `[object Object]`.
 - **ADR-003 (Descubrimiento No-Bloqueante)**: Aumento de timeout a 10s en el descubrimiento de prefijos, pre-poblado directo desde atributos `note` y fallback extendido para `agy_opus` y `codex`.
+- **ADR-004 (Contrato de composición del footer)**: `__originalRail` es contrato obligatorio para todo lo que envuelva `parts["footer"]`; la intercepción de `parts.set` es intencional y reactiva. Ver [docs/architecture/sidebar-footer-composition.md](../docs/architecture/sidebar-footer-composition.md).
