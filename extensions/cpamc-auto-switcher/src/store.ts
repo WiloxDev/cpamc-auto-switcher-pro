@@ -1,10 +1,11 @@
-import { readFileSync, existsSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, renameSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { resolveCandidateBaseUrls, resolveCpamcBaseUrl } from "./provider.js";
 
 const TIMEOUT_MS = 6000;
-export const QUOTA_REFRESH_MS = 25_000;
+export const QUOTA_REFRESH_MS = 60_000;
+export const DIRECT_FALLBACK_TTL_MS = 5 * 60 * 1000; // 5 minutos exactos hacia Google en modo fallback autónomo
 
 export interface RotationCauseItem {
 	time_str: string;
@@ -124,6 +125,8 @@ export interface ModelPoolClassification {
 let cachedAccounts: SwitcherAccount[] = [];
 let lastFetchTime = 0;
 let isFetching = false;
+let lastDirectFallbackFetchTime = 0;
+let cachedDirectFallbackAccounts: SwitcherAccount[] = [];
 
 export function setCachedAccountsForTesting(accounts: SwitcherAccount[]): void {
 	cachedAccounts = accounts;
@@ -187,6 +190,298 @@ export function getCandidateStatePaths(): string[] {
 	];
 }
 
+export function getCandidateTelemetrySnapshotPaths(): string[] {
+	const home = homedir();
+	const localAppData = process.env.LOCALAPPDATA || join(home, "AppData", "Local");
+	const appData = process.env.APPDATA || join(home, "AppData", "Roaming");
+
+	return [
+		// Prioridad 0: Memoria compartida volátil (<0.1ms en Linux/Docker)
+		"/dev/shm/auto-switcher-pro-telemetry.json",
+		// Prioridad 1: Plugins en CPAMC Canónico
+		join(home, ".cli-proxy-api", "plugins", "auto-switcher-pro-telemetry.json"),
+		join(home, "services", "cliproxy", "plugins", "auto-switcher-pro-telemetry.json"),
+		"/CLIProxyAPI/plugins/auto-switcher-pro-telemetry.json",
+		join(localAppData, "cli-proxy-api", "plugins", "auto-switcher-pro-telemetry.json"),
+		join(appData, "cli-proxy-api", "plugins", "auto-switcher-pro-telemetry.json"),
+		join(home, "Library", "Application Support", "cli-proxy-api", "plugins", "auto-switcher-pro-telemetry.json"),
+		// Prioridad 2: EasyCLIProxyAPI
+		join(home, ".local", "share", "EasyCLIProxyAPI", "cpa-core", "plugins", "auto-switcher-pro-telemetry.json"),
+		join(localAppData, "EasyCLIProxyAPI", "cpa-core", "plugins", "auto-switcher-pro-telemetry.json"),
+		join(appData, "EasyCLIProxyAPI", "cpa-core", "plugins", "auto-switcher-pro-telemetry.json"),
+		join(home, "Library", "Application Support", "EasyCLIProxyAPI", "cpa-core", "plugins", "auto-switcher-pro-telemetry.json"),
+	];
+}
+
+/**
+ * Resuelve los directorios candidatos de credenciales de autenticación de CPAMC (~/.cli-proxy-api, auth-dir en config.yaml, etc.)
+ */
+export function resolveLocalAuthDirs(): string[] {
+	const dirs: string[] = [];
+	if (process.env.AUTO_SWITCHER_AUTH_DIR && existsSync(process.env.AUTO_SWITCHER_AUTH_DIR)) {
+		dirs.push(process.env.AUTO_SWITCHER_AUTH_DIR);
+	}
+	if (process.env.CLI_PROXY_AUTH_DIR && existsSync(process.env.CLI_PROXY_AUTH_DIR)) {
+		dirs.push(process.env.CLI_PROXY_AUTH_DIR);
+	}
+
+	const home = homedir();
+	const localAppData = process.env.LOCALAPPDATA || join(home, "AppData", "Local");
+	const appData = process.env.APPDATA || join(home, "AppData", "Roaming");
+
+	const candidates = [
+		join(home, ".cli-proxy-api"),
+		join(home, "services", "cliproxy", "auths"),
+		join(home, "services", "cliproxy"),
+		"/CLIProxyAPI/auths",
+		"/root/.cli-proxy-api",
+		join(localAppData, "cli-proxy-api"),
+		join(appData, "cli-proxy-api"),
+		join(home, ".local", "share", "EasyCLIProxyAPI", "cpa-core"),
+	];
+
+	for (const c of candidates) {
+		if (existsSync(c) && !dirs.includes(c)) {
+			dirs.push(c);
+		}
+	}
+	return dirs;
+}
+
+/**
+ * Consulta la cuota directamente a Google Cloud Code (retrieveUserQuotaSummary)
+ * para una credencial individual OAuth de Antigravity.
+ * Se utiliza EXCLUSIVAMENTE como fallback cuando ni el plugin ni el backend CPAMC están disponibles.
+ */
+export async function fetchDirectGoogleQuota(authFileContent: string): Promise<{ w5h: number; weekly: number; reset5h: number; resetWeekly: number } | null> {
+	try {
+		const cred = JSON.parse(authFileContent);
+		const token = (cred.access_token || cred.token || "").trim();
+		if (!token) return null;
+
+		const prov = (cred.provider || cred.type || "").toLowerCase();
+		if (prov && !prov.includes("antigravity") && !prov.includes("google") && !prov.includes("code")) {
+			return null;
+		}
+
+		const body = cred.project_id ? JSON.stringify({ project: cred.project_id }) : "{}";
+		const res = await fetch("https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary", {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${token}`,
+				"Content-Type": "application/json",
+				"User-Agent": "antigravity/hub/2.23.0 darwin/arm64",
+			},
+			body,
+			signal: AbortSignal.timeout(TIMEOUT_MS),
+		});
+
+		if (!res.ok) return null;
+		const data = (await res.json()) as any;
+		const groups = Array.isArray(data?.groups) ? data.groups : [];
+
+		let worst5h: number | null = null;
+		let worstWeekly: number | null = null;
+		let reset5hSec = 0;
+		let resetWeeklySec = 0;
+
+		const now = Date.now();
+
+		for (const g of groups) {
+			const buckets = Array.isArray(g?.buckets) ? g.buckets : [];
+			for (const b of buckets) {
+				if (typeof b?.remainingFraction !== "number") continue;
+				const remPct = b.remainingFraction * 100.0;
+				const bName = `${b.displayName || ""} ${b.label || ""} ${b.window || ""}`.toLowerCase();
+
+				let remSec = 0;
+				if (b.resetTime) {
+					const t = new Date(b.resetTime).getTime();
+					if (!isNaN(t) && t > now) {
+						remSec = Math.round((t - now) / 1000);
+					}
+				}
+
+				if (bName.includes("5") || bName.includes("five")) {
+					if (worst5h === null || remPct < worst5h) {
+						worst5h = remPct;
+						reset5hSec = remSec;
+					}
+				} else if (bName.includes("week")) {
+					if (worstWeekly === null || remPct < worstWeekly) {
+						worstWeekly = remPct;
+						resetWeeklySec = remSec;
+					}
+				}
+			}
+		}
+
+		return {
+			w5h: worst5h !== null ? worst5h : 100.0,
+			weekly: worstWeekly !== null ? worstWeekly : 100.0,
+			reset5h: reset5hSec,
+			resetWeekly: resetWeeklySec,
+		};
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Escanea archivos de credenciales físicos en disco y consulta directamente a Google
+ * para proveer telemetría en modo autónomo sin plugin CPAMC instalado.
+ */
+export async function queryDirectAccountsFallback(): Promise<SwitcherAccount[]> {
+	const authDirs = resolveLocalAuthDirs();
+	const list: SwitcherAccount[] = [];
+	const seenEmails = new Set<string>();
+
+	for (const dir of authDirs) {
+		try {
+			const entries = readdirSync(dir);
+			const authFiles = entries.filter((e) => e.endsWith(".json") && !e.startsWith("."));
+
+			// Procesar en lotes pequeños (máximo 3 concurrentes para respetar rate limits de Google)
+			for (const file of authFiles) {
+				const fullPath = join(dir, file);
+				try {
+					const content = readFileSync(fullPath, "utf-8");
+					const cred = JSON.parse(content);
+					const email = (cred.email || file.replace(/^antigravity-/, "").replace(/\.json$/, "")).trim();
+					if (!email || seenEmails.has(email.toLowerCase())) continue;
+					seenEmails.add(email.toLowerCase());
+
+					const prov = (cred.provider || cred.type || "antigravity").toLowerCase();
+					let provider = "antigravity";
+					if (prov.includes("opencode") || prov.includes("nan") || prov.includes("nim")) {
+						provider = "opencode-go";
+					} else if (prov.includes("codex") || prov.includes("openai")) {
+						provider = "codex";
+					} else if (prov.includes("claude") || prov.includes("anthropic")) {
+						provider = "claude";
+					}
+
+					let w5h = 95.0;
+					let weekly = 95.0;
+					let reset5h: number | undefined;
+					let resetWk: number | undefined;
+
+					if (provider === "antigravity") {
+						const q = await fetchDirectGoogleQuota(content);
+						if (q) {
+							w5h = q.w5h;
+							weekly = q.weekly;
+							reset5h = q.reset5h;
+							resetWk = q.resetWeekly;
+						}
+					}
+
+					const minPct = Math.round(Math.min(w5h, weekly));
+					const c5h = Math.max(0, Math.min(100, Math.round(100 - w5h)));
+					const cWk = Math.max(0, Math.min(100, Math.round(100 - weekly)));
+					const prefix = (cred.prefix || cred.note || "-").trim();
+
+					list.push({
+						status: "[OTHER]",
+						provider,
+						profile: prefix || "-",
+						accountId: email,
+						prefix: prefix || "-",
+						consumed5h: `${c5h}%`,
+						consumedWeekly: `${cWk}%`,
+						minAvailable: `${minPct}%`,
+						reset5hInSec: reset5h,
+						resetWeeklyInSec: resetWk,
+					});
+				} catch {}
+			}
+		} catch {}
+	}
+
+	return list;
+}
+function parseAccountsFromTelemetry(rawAccounts: any[], standaloneAliases?: Record<string, string>): SwitcherAccount[] {
+	if (!Array.isArray(rawAccounts) || rawAccounts.length === 0) return [];
+
+	const reserveIndexByPool = new Map<string, number>();
+	return rawAccounts.map((a: any) => {
+		const isLeader = a.role === "leader";
+		const isUnassigned = a.role === "unassigned";
+		const basePref = a.base_prefix || (isUnassigned ? "-" : "default");
+		let prefix = basePref;
+		if (!isLeader && !isUnassigned) {
+			const nextIdx = (reserveIndexByPool.get(basePref) || 0) + 1;
+			reserveIndexByPool.set(basePref, nextIdx);
+			prefix = `${basePref}_${nextIdx}`;
+		}
+
+		const w5h = typeof a.window_5h_pct === "number" ? a.window_5h_pct : 95;
+		const wWk = typeof a.weekly_pct === "number" ? a.weekly_pct : 95;
+		const minPct = Math.round(Math.min(w5h, wWk));
+		const c5h = Math.max(0, Math.min(100, Math.round(100 - w5h)));
+		const cWk = Math.max(0, Math.min(100, Math.round(100 - wWk)));
+		const reset5h = typeof a.window_5h_reset_in === "number" ? a.window_5h_reset_in : undefined;
+		const resetWk = typeof a.weekly_reset_in === "number" ? a.weekly_reset_in : undefined;
+
+		const rawKey = (a.account_key || a.email || "").toLowerCase();
+		let provider = "antigravity";
+		if (rawKey.includes("opencode") || rawKey.includes("nan") || rawKey.includes("nim") || rawKey.includes("nvidia")) {
+			provider = "opencode-go";
+		} else if (rawKey.includes("codex") || rawKey.includes("openai")) {
+			provider = "codex";
+		} else if (rawKey.includes("claude") || rawKey.includes("anthropic")) {
+			provider = "claude";
+		}
+
+		const alias = typeof a.alias === "string" && a.alias.trim()
+			? a.alias.trim()
+			: (standaloneAliases?.[a.account_key] || undefined);
+
+		return {
+			status: isLeader ? "[ACTIVE]" : isUnassigned ? "[OTHER]" : "[RESERVE]",
+			provider,
+			profile: basePref,
+			accountId: a.email || maskEmailFromAuth(a.account_key),
+			prefix,
+			alias,
+			consumed5h: `${c5h}%`,
+			consumedWeekly: `${cWk}%`,
+			minAvailable: `${minPct}%`,
+			reset5hInSec: reset5h,
+			resetWeeklyInSec: resetWk,
+		};
+	});
+}
+
+/**
+ * Intenta leer el snapshot consolidado de telemetría directamente desde disco o memoria compartida (/dev/shm).
+ * Latencia sub-milisegundo sin requerir llamadas de red HTTP.
+ */
+export function getStoredTelemetrySnapshot(): SwitcherAccount[] | null {
+	const candidates = getCandidateTelemetrySnapshotPaths();
+	for (const p of candidates) {
+		try {
+			if (existsSync(p)) {
+				const raw = readFileSync(p, "utf-8");
+				const parsed = JSON.parse(raw);
+				if (parsed?.lifecycle) {
+					cachedLifecycle = parsed.lifecycle;
+				}
+				if (parsed?.lifecycles && typeof parsed.lifecycles === "object") {
+					cachedLifecyclesByPool = { ...cachedLifecyclesByPool, ...parsed.lifecycles };
+				}
+				if (parsed?.ok && Array.isArray(parsed?.accounts) && parsed.accounts.length > 0) {
+					const list = parseAccountsFromTelemetry(parsed.accounts, parsed.standalone_aliases);
+					if (list.length > 0) {
+						return list;
+					}
+				}
+			}
+		} catch {}
+	}
+	return null;
+}
+
 /**
  * Lee el archivo de estado de pools si existe en rutas conocidas.
  */
@@ -231,6 +526,14 @@ export async function querySwitcherAccounts(force = false): Promise<SwitcherAcco
 
 	isFetching = true;
 	try {
+		// Prioridad 0: Lectura atómica local de auto-switcher-pro-telemetry.json (SHM o disco, <0.1ms)
+		const diskSnapshot = getStoredTelemetrySnapshot();
+		if (diskSnapshot && diskSnapshot.length > 0) {
+			cachedAccounts = diskSnapshot;
+			lastFetchTime = Date.now();
+			return cachedAccounts;
+		}
+
 		const candidateUrls = resolveCandidateBaseUrls();
 		let key = (process.env.CLIPROXYAPI_MANAGEMENT_KEY || "").trim();
 		if (!key) {
@@ -272,69 +575,34 @@ export async function querySwitcherAccounts(force = false): Promise<SwitcherAcco
 		// Probar cada URL candidata de CPAMC hasta encontrar el endpoint vivo
 		for (const baseUrl of candidateUrls) {
 			try {
-				// Prioridad 1: Consulta O(1) vía /auto-switcher-pro/manifest (elimina peticiones múltiples)
+				// Prioridad 1: Consulta O(1) vía /auto-switcher-pro/manifest o /auto-switcher-pro/telemetry/live
 				try {
-					const manifestRes = await fetch(`${baseUrl}/v0/management/auto-switcher-pro/manifest`, {
+					let liveData: any = null;
+					const liveRes = await fetch(`${baseUrl}/v0/management/auto-switcher-pro/telemetry/live`, {
 						headers,
 						signal: AbortSignal.timeout(TIMEOUT_MS),
 					});
-					if (manifestRes.ok) {
-						const mData = (await manifestRes.json()) as any;
-						if (mData?.lifecycle) {
-							cachedLifecycle = mData.lifecycle;
+					if (liveRes.ok) {
+						liveData = await liveRes.json();
+					} else {
+						const manifestRes = await fetch(`${baseUrl}/v0/management/auto-switcher-pro/manifest`, {
+							headers,
+							signal: AbortSignal.timeout(TIMEOUT_MS),
+						});
+						if (manifestRes.ok) {
+							liveData = await manifestRes.json();
 						}
-						if (mData?.lifecycles && typeof mData.lifecycles === "object") {
-							cachedLifecyclesByPool = { ...cachedLifecyclesByPool, ...mData.lifecycles };
+					}
+
+					if (liveData) {
+						if (liveData?.lifecycle) {
+							cachedLifecycle = liveData.lifecycle;
 						}
-						if (mData?.ok && Array.isArray(mData?.accounts) && mData.accounts.length > 0) {
-							const reserveIndexByPool = new Map<string, number>();
-							const list: SwitcherAccount[] = mData.accounts.map((a: any) => {
-								const isLeader = a.role === "leader";
-								const isUnassigned = a.role === "unassigned";
-								const basePref = a.base_prefix || (isUnassigned ? "-" : "default");
-								let prefix = basePref;
-								if (!isLeader && !isUnassigned) {
-									const nextIdx = (reserveIndexByPool.get(basePref) || 0) + 1;
-									reserveIndexByPool.set(basePref, nextIdx);
-									prefix = `${basePref}_${nextIdx}`;
-								}
-
-								const w5h = typeof a.window_5h_pct === "number" ? a.window_5h_pct : 95;
-								const wWk = typeof a.weekly_pct === "number" ? a.weekly_pct : 95;
-								const minPct = Math.round(Math.min(w5h, wWk));
-								const c5h = Math.max(0, Math.min(100, Math.round(100 - w5h)));
-								const cWk = Math.max(0, Math.min(100, Math.round(100 - wWk)));
-								const reset5h = typeof a.window_5h_reset_in === "number" ? a.window_5h_reset_in : undefined;
-								const resetWk = typeof a.weekly_reset_in === "number" ? a.weekly_reset_in : undefined;
-
-								const rawKey = (a.account_key || a.email || "").toLowerCase();
-								let provider = "antigravity";
-								if (rawKey.includes("opencode") || rawKey.includes("nan") || rawKey.includes("nim") || rawKey.includes("nvidia")) {
-									provider = "opencode-go";
-								} else if (rawKey.includes("codex") || rawKey.includes("openai")) {
-									provider = "codex";
-								} else if (rawKey.includes("claude") || rawKey.includes("anthropic")) {
-									provider = "claude";
-								}
-
-								const alias = typeof a.alias === "string" && a.alias.trim()
-									? a.alias.trim()
-									: (mData.standalone_aliases?.[a.account_key] || undefined);
-
-								return {
-									status: isLeader ? "[ACTIVE]" : isUnassigned ? "[OTHER]" : "[RESERVE]",
-									provider,
-									profile: basePref,
-									accountId: a.email || maskEmailFromAuth(a.account_key),
-									prefix,
-									alias,
-									consumed5h: `${c5h}%`,
-									consumedWeekly: `${cWk}%`,
-									minAvailable: `${minPct}%`,
-									reset5hInSec: reset5h,
-									resetWeeklyInSec: resetWk,
-								};
-							});
+						if (liveData?.lifecycles && typeof liveData.lifecycles === "object") {
+							cachedLifecyclesByPool = { ...cachedLifecyclesByPool, ...liveData.lifecycles };
+						}
+						if (liveData?.ok && Array.isArray(liveData?.accounts) && liveData.accounts.length > 0) {
+							const list = parseAccountsFromTelemetry(liveData.accounts, liveData.standalone_aliases);
 							if (list.length > 0) {
 								cachedAccounts = list;
 								lastFetchTime = Date.now();
@@ -435,7 +703,7 @@ export async function querySwitcherAccounts(force = false): Promise<SwitcherAcco
 		// Si la API no respondió o vino vacía, intentar fallback a través de getStoredPools() en auto-switcher-pro-state.json
 		throw new Error("Empty API response");
 	} catch {
-		// Fallback gracioso: leer estado guardado en auto-switcher-pro-state.json
+		// Fallback gracioso 1: leer estado guardado en auto-switcher-pro-state.json
 		const pools = getStoredPools();
 		if (pools.length > 0) {
 			const fallbackList: SwitcherAccount[] = [];
@@ -457,8 +725,28 @@ export async function querySwitcherAccounts(force = false): Promise<SwitcherAcco
 			if (fallbackList.length > 0) {
 				cachedAccounts = fallbackList;
 				lastFetchTime = Date.now();
+				return cachedAccounts;
 			}
 		}
+
+		// Fallback gracioso 2: El plugin no está instalado ni hay estado guardado.
+		// Consultar directamente a Google las cuentas individuales OAuth presentes en disco.
+		// Respetar DIRECT_FALLBACK_TTL_MS (5 minutos) para proteger cuota de red hacia Google.
+		try {
+			if (cachedDirectFallbackAccounts.length > 0 && now - lastDirectFallbackFetchTime < DIRECT_FALLBACK_TTL_MS) {
+				cachedAccounts = cachedDirectFallbackAccounts;
+				lastFetchTime = Date.now();
+				return cachedAccounts;
+			}
+			const directList = await queryDirectAccountsFallback();
+			if (directList.length > 0) {
+				cachedDirectFallbackAccounts = directList;
+				lastDirectFallbackFetchTime = Date.now();
+				cachedAccounts = directList;
+				lastFetchTime = Date.now();
+			}
+		} catch {}
+
 		return cachedAccounts;
 	} finally {
 		isFetching = false;

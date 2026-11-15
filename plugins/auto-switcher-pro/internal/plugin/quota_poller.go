@@ -156,8 +156,11 @@ func (p *AutonomousQuotaPoller) PollAllPoolAccounts(ctx context.Context) {
 
 	// Concurrency Semaphore: max 3 concurrent outbound quota calls to prevent IP throttling
 	sem := make(chan struct{}, 3)
+	var wg sync.WaitGroup
 	for _, task := range tasks {
+		wg.Add(1)
 		go func(t pollTask) {
+			defer wg.Done()
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
@@ -167,6 +170,11 @@ func (p *AutonomousQuotaPoller) PollAllPoolAccounts(ctx context.Context) {
 			}
 		}(task)
 	}
+	wg.Wait()
+
+	// Actualizar snapshot atómico en disco y SHM al concluir el lote
+	_ = WriteAtomicTelemetrySnapshot()
+	EmitGlobalEpoch()
 }
 
 func (p *AutonomousQuotaPoller) pollSingleAccount(ctx context.Context, memberFile string, pool PoolDefinition, predEngine *PredictiveEngine) {

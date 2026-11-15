@@ -111,6 +111,11 @@ func HandlePluginMethod(method string, request []byte) ([]byte, error) {
 				},
 				{
 					"Method":      http.MethodGet,
+					"Path":        telemetryLivePath,
+					"Description": "Snapshot O(1) de telemetría de cuotas y líderes activos para sidebars y extensiones",
+				},
+				{
+					"Method":      http.MethodGet,
 					"Path":        poolsRoutePath,
 					"Description": "Lista los pools de balanceo de carga registrados en el plugin",
 				},
@@ -526,6 +531,11 @@ func HandleManagementHTTP(request []byte) ([]byte, error) {
 	// Manifest unified O(1) route
 	if isManifestPath(req.Path) {
 		return handleManifestHTTP(req)
+	}
+
+	// Telemetry live snapshot O(1) route
+	if isTelemetryLivePath(req.Path) {
+		return handleTelemetryLiveHTTP(req)
 	}
 
 	// Pool management routes: GET to list pools, POST to create/update, DELETE to dissolve
