@@ -22,7 +22,7 @@ describe('App Host Component Integration', () => {
     render(<App />);
 
     expect(await screen.findByTestId('status-unauthenticated')).toBeTruthy();
-    expect(screen.getByText('Authentication Required')).toBeTruthy();
+    expect(screen.getByText('Conexión con CPAMC requerida')).toBeTruthy();
     expect(screen.getByTestId('btn-retry-auth')).toBeTruthy();
     expect(screen.getByTestId('btn-load-demo')).toBeTruthy();
     expect(screen.getByTestId('input-manual-key')).toBeTruthy();
@@ -128,7 +128,7 @@ describe('App Host Component Integration', () => {
     render(<App />);
 
     expect(await screen.findByTestId('status-error')).toBeTruthy();
-    expect(screen.getByText('Failed to Load Profiles')).toBeTruthy();
+    expect(screen.getByText('Error al cargar perfiles')).toBeTruthy();
     expect(
       screen.getByText('Failed to load auth file "corrupted-account.json": 404 Not Found')
     ).toBeTruthy();
@@ -148,7 +148,7 @@ describe('App Host Component Integration', () => {
     render(<App />);
 
     expect(await screen.findByTestId('status-error')).toBeTruthy();
-    expect(screen.getByText('Failed to Load Profiles')).toBeTruthy();
+    expect(screen.getByText('Error al cargar perfiles')).toBeTruthy();
     expect(
       screen.getByText('Failed to load auth file "account.json": 401 Unauthorized')
     ).toBeTruthy();
