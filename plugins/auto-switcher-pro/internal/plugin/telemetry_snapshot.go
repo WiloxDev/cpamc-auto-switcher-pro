@@ -20,11 +20,12 @@ const (
 // intended for fast O(1) reads by external consumers (Sidebar, TUI, CLI, scripts)
 // without requiring external quota queries or mutating state.
 type TelemetrySnapshot struct {
-	OK        bool                   `json:"ok"`
-	Timestamp int64                  `json:"timestamp"`
-	Epoch     string                 `json:"epoch"`
-	Pools     []PoolTelemetrySummary `json:"pools"`
-	Accounts  []ManifestAccountSummary `json:"accounts"`
+	OK                bool                     `json:"ok"`
+	Timestamp         int64                    `json:"timestamp"`
+	Epoch             string                   `json:"epoch"`
+	Pools             []PoolTelemetrySummary   `json:"pools"`
+	Accounts          []ManifestAccountSummary `json:"accounts"`
+	StandaloneAliases map[string]string        `json:"standalone_aliases,omitempty"`
 }
 
 // PoolTelemetrySummary provides sovereign pool-centric quota and active leader information.
@@ -238,13 +239,16 @@ func BuildTelemetrySnapshot() TelemetrySnapshot {
 			}
 
 			prefix := ""
+			prov := ""
 			accountLabel := email
 			if data, err := os.ReadFile(filepath.Join(authDir, cleanAuth)); err == nil {
 				var cred struct {
-					Prefix string `json:"prefix"`
-					Note   string `json:"note"`
-					Label  string `json:"label"`
-					Email  string `json:"email"`
+					Prefix   string `json:"prefix"`
+					Note     string `json:"note"`
+					Label    string `json:"label"`
+					Provider string `json:"provider"`
+					Type     string `json:"type"`
+					Email    string `json:"email"`
 				}
 				if json.Unmarshal(data, &cred) == nil {
 					prefix = strings.TrimSpace(cred.Prefix)
@@ -256,7 +260,25 @@ func BuildTelemetrySnapshot() TelemetrySnapshot {
 					} else if cred.Email != "" {
 						accountLabel = cred.Email
 					}
+					prov = cred.Provider
+					if prov == "" {
+						prov = cred.Type
+					}
 				}
+			}
+			if prov == "" {
+				if strings.HasPrefix(cleanAuth, "antigravity-") {
+					prov = "antigravity"
+				} else if strings.HasPrefix(cleanAuth, "codex-") {
+					prov = "codex"
+				} else if strings.HasPrefix(cleanAuth, "claude-") {
+					prov = "claude"
+				}
+			}
+
+			alias := ""
+			if reg != nil {
+				alias = reg.GetOrAssignStandaloneAlias(cleanAuth, prov)
 			}
 
 			accountSummaries = append(accountSummaries, ManifestAccountSummary{
@@ -265,6 +287,7 @@ func BuildTelemetrySnapshot() TelemetrySnapshot {
 				PoolID:          "",
 				BasePrefix:      prefix,
 				Role:            "unassigned",
+				Alias:           alias,
 				Window5hPct:     w5h,
 				WeeklyPct:       wWeekly,
 				Window5hResetIn: w5hResetIn,
@@ -275,12 +298,18 @@ func BuildTelemetrySnapshot() TelemetrySnapshot {
 		}
 	}
 
+	var allStandaloneAliases map[string]string
+	if reg != nil {
+		allStandaloneAliases = reg.GetAllStandaloneAliases()
+	}
+
 	return TelemetrySnapshot{
-		OK:        true,
-		Timestamp: time.Now().Unix(),
-		Epoch:     epochStr,
-		Pools:     poolSummaries,
-		Accounts:  accountSummaries,
+		OK:                true,
+		Timestamp:         time.Now().Unix(),
+		Epoch:             epochStr,
+		Pools:             poolSummaries,
+		Accounts:          accountSummaries,
+		StandaloneAliases: allStandaloneAliases,
 	}
 }
 

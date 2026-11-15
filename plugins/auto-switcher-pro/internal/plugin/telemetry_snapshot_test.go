@@ -72,6 +72,9 @@ func TestTelemetrySnapshot_BuildAndWriteAtomic(t *testing.T) {
 	if len(pSumm.Reserves) != 1 || pSumm.Reserves[0] != "antigravity-reserve1.json" {
 		t.Errorf("unexpected reserves: %+v", pSumm.Reserves)
 	}
+	if snapshot.StandaloneAliases["antigravity-standalone.json"] == "" {
+		t.Errorf("expected standalone alias for antigravity-standalone.json, got %+v", snapshot.StandaloneAliases)
+	}
 
 	// 2. Verificar escritura atómica a disco
 	if err := WriteAtomicTelemetrySnapshot(); err != nil {
